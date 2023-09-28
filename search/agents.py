@@ -22,6 +22,8 @@ class CustomAgentSearchEngine(AbstractSearchEngine):
         You are given a query. Choose the right tool to pass the query to get the right answer.
         Each of the tools is the search engine to call based on provided context.
         It could be performing Information Retrieval (IR) based search or metadata or SQL based searches.
+        If one of the tools doesn't provide any answer, skip that and use other tools.
+        Finally, if you have the answer, provide that answer.
         You have access to the following tools:
 
         {tools}
@@ -32,7 +34,7 @@ class CustomAgentSearchEngine(AbstractSearchEngine):
         Thought: you should always think about what to do
         Action: the action to take, should be one of [{tool_names}]
         Action Input: the input to the action
-        Observation: the result of the action
+        Observation: The result of the action. You must follow the observation with either an action or final answer
         ... (this Thought/Action/Action Input/Observation can repeat N times)
         Thought: Now that I have the query and there isn't metadata fields that can be extracted from the query, I choose SimpleRAG
         Action: SimpleRAG
@@ -46,9 +48,34 @@ class CustomAgentSearchEngine(AbstractSearchEngine):
         {agent_scratchpad}
     """.strip()
 
+    # _TEMPLATE = """
+    #     You are given a query. Choose the right tool to pass the query to get the right answer.
+    #     Each of the tools is the search engine to call based on provided context.
+    #     It could be performing Information Retrieval (IR) based search or metadata or SQL based searches.
+    #     If one of the tools doesn't provide any answer, skip that and use other tools.
+    #     Finally, if you have the answer, provide that answer.
+    #     You have access to the following tools:
+
+    #     {tools}
+
+    #     Use the following format:
+
+    #     Query: the input question you must answer
+    #     Thought: you should always think about what to do
+    #     Action: the action to take, should be one of [{tool_names}]
+    #     Action Input: the input to the action
+    #     Observation: The result of the action.
+    #     ... (this Thought/Action/Action Input/Observation can repeat N times. Once you have the answer, provide the Final Answer)
+    #     Final Answer: the final answer for the query based on the previous observations
+
+    #     Begin Loop:
+
+    #     Query: {input}
+    #     {agent_scratchpad}
+    # """.strip()
+
     class _CustomOutputParser(AgentOutputParser):
         def parse(self, llm_output: str) -> Union[AgentAction, AgentFinish]:
-            print(llm_output)
             # Check if agent should finish
             if "Final Answer:" in llm_output:
                 return AgentFinish(
@@ -95,23 +122,25 @@ class CustomAgentSearchEngine(AbstractSearchEngine):
             formatted = self.template.format(**kwargs)
             return [HumanMessage(content=formatted)]
 
-    def __init__(self, *engines, debug: bool = False):
+    def __init__(self, *engines, model: str = "gpt-3.5-turbo", debug: bool = False):
         super().__init__(debug=debug)
         self.engines = engines
         self.tools = self.create_tools()
         self.tool_names = list(map(lambda t: t.name, self.tools))
+        self.model = model or "gpt-3.5-turbo"
 
         self.prompt = self._CustomPromptTemplate(
             template=CustomAgentSearchEngine._TEMPLATE,
             tools=self.tools,
             input_variables=["input", "intermediate_steps"],
         )
-        self.llm_chain = LLMChain(
-            llm=ChatOpenAI(model_name="gpt-3.5-turbo-0613", temperature=0),
+
+    @property
+    def llm_chain(self):
+        return LLMChain(
+            llm=ChatOpenAI(model_name=self.model, temperature=0),
             prompt=self.prompt,
         )
-
-        self.agent_executor = self.create_agent()
 
     def create_tools(self) -> list:
         tools = []
@@ -124,7 +153,8 @@ class CustomAgentSearchEngine(AbstractSearchEngine):
             tools.append(tool)
         return tools
 
-    def create_agent(self):
+    @property
+    def agent_executor(self):
         agent = LLMSingleActionAgent(
             llm_chain=self.llm_chain,
             output_parser=self._CustomOutputParser(),
@@ -134,7 +164,7 @@ class CustomAgentSearchEngine(AbstractSearchEngine):
         return AgentExecutor.from_agent_and_tools(
             agent=agent,
             tools=self.tools,
-            verbose=True,
+            verbose=self.debug,
         )
 
     def query(self, query: str):
