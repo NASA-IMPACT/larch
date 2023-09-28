@@ -4,6 +4,7 @@ import json
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Type
 
+import openai
 from langchain.agents import create_sql_agent
 from langchain.agents.agent_toolkits import SQLDatabaseToolkit
 from langchain.agents.agent_types import AgentType
@@ -155,6 +156,58 @@ class MetadataBasedAugmentedSearchEngine(AbstractSearchEngine):
             logger.debug(f"SQL Query: {sql_query}")
 
         return self.db.run(sql_query)
+
+
+class EnsembleAugmentedSearchEngine(AbstractSearchEngine):
+    """
+    This ensembles answers from all the available search engines using
+    simple prompting strategy for GPT
+    """
+
+    _PROMPT = """
+    Following are the systems generated answers in response to user input query.
+    I want you to best consolidate the response that is accurate and coherent based on all those answers.
+    Don't give response that doesn't belong within the generated answers.
+    Here are the answers:\n
+    """
+
+    def __init__(
+        self,
+        *engines: Type[AbstractSearchEngine],
+        model: str = "gpt-3.5-turbo",
+        prompt: Optional[str] = None,
+        debug: bool = False,
+    ) -> None:
+        super().__init__(debug)
+        self.engines = engines
+        self.prompt = prompt or EnsembleAugmentedSearchEngine._PROMPT
+
+        for engine in self.engines:
+            engine.debug = self.debug
+
+        self.model = model or "gpt-3.5-turbo"
+
+    def query(self, query: str, **kwargs) -> str:
+        results = map(lambda e: e(query, **kwargs), self.engines)
+        results = list(results)
+
+        msg = self.prompt + "\n".join(
+            [f"Answer {i}: {r}" for i, r in enumerate(results, start=1)],
+        )
+
+        if self.debug:
+            logger.debug(f"User Message :: {msg}")
+
+        response = openai.ChatCompletion.create(
+            model=self.model,
+            temperature=0,
+            messages=[{"role": "user", "content": msg}],
+        )
+
+        if self.debug:
+            logger.debug(f"OpenAI response :: {response}")
+
+        return response.get("choices", [{}])[0].get("message", {}).get("content", "")
 
 
 def main():
