@@ -23,7 +23,7 @@ class CustomAgentSearchEngine(AbstractSearchEngine):
         Each of the tools is the search engine to call based on provided context.
         It could be performing Information Retrieval (IR) based search or metadata or SQL based searches.
         If one of the tools doesn't provide any answer, skip that and use other tools.
-        Finally, if you have the answer, provide that answer.
+        Finally, if you have the answer, provide that answer. Consolidate the final answer in human readable form which should answer the query correctly.
         You have access to the following tools:
 
         {tools}
@@ -40,7 +40,7 @@ class CustomAgentSearchEngine(AbstractSearchEngine):
         Action: SimpleRAG
         Action Input: the query string from the user
         Observation: the result of the action
-        Final Answer: Correctly extracted answer from the search engine. Only show the answer if it makes sense to the provided query.
+        Final Answer: Correctly extracted answer from the search engine, which is human readable form that directly answers the query
 
         Begin Loop:
 

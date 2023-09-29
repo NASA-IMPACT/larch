@@ -65,11 +65,11 @@ class SimpleRAG(AbstractSearchEngine):
 
 class SQLAgentSearchEngine(AbstractSearchEngine):
     """
-    This search engine uses langchain's SQL agent to best answer the given query.
+    This search engine uses an SQL agent to best answer the given query.
     Based on given query, it generates an appropriate SQL query internally and runs the query to generate response text.
+    Use this whenever there's a complex query that SQL syntax can support such as grouping, ordering, counting, etc.
 
-    This should be the first engine to be run if there is enough metadata.
-    If it fails to answer the query, use `MetadataBasedAugmentedSearchEngine` instead.
+    If this fails to answer the query, use `MetadataBasedAugmentedSearchEngine` instead.
     """
 
     def __init__(

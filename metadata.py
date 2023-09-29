@@ -4,6 +4,7 @@ import contextlib
 import json
 import re
 from abc import ABC, abstractmethod
+from functools import cache
 from typing import Callable, List, Optional, Type
 
 import instructor
@@ -31,6 +32,7 @@ class AbstractMetadataExtractor(ABC):
         text = self._preprocess_text(text)
         return self._extract(text) if text else None
 
+    @cache
     @abstractmethod
     def _extract(self, text: str):
         raise NotImplementedError()
