@@ -5,7 +5,10 @@ import pickle
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Type
 
+from langchain.base_language import BaseLanguageModel
 from langchain.chat_models import ChatOpenAI
+from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain.schema.embeddings import Embeddings
 from loguru import logger
 from paperqa import Docs
 from pydantic import BaseModel
@@ -48,14 +51,18 @@ class PaperQADocumentIndexer(DocumentIndexer):
 
     def __init__(
         self,
-        llm: Optional[ChatOpenAI] = None,
+        llm: Optional[BaseLanguageModel] = None,
+        embeddings: Optional[Embeddings] = None,
         docs: Optional[List[str]] = None,
         doc_store: Optional[Docs] = None,
         debug: bool = False,
     ) -> None:
         super().__init__(docs=docs, debug=debug)
+
         llm = llm or ChatOpenAI(model="gpt-3.5-turbo", temperature=0.0)
-        self.doc_store = doc_store or Docs(llm=llm)
+        embeddings = embeddings or OpenAIEmbeddings(client=None)
+
+        self.doc_store = doc_store or Docs(llm=llm, embeddings=embeddings)
 
     def index_documents(self, paths: List[str], **kwargs) -> Any:
         for path in paths:
