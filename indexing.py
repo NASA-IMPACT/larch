@@ -10,7 +10,8 @@ from langchain.chat_models import ChatOpenAI
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.schema.embeddings import Embeddings
 from loguru import logger
-from paperqa import Docs
+from paperqa import Doc, Docs
+from paperqa.readers import read_doc
 from pydantic import BaseModel
 
 from .metadata import AbstractMetadataExtractor
