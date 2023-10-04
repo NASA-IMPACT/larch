@@ -17,6 +17,7 @@ from tqdm import tqdm
 from .metadata import AbstractMetadataExtractor, InstructorBasedOpenAIMetadataExtractor
 from .paperqa_patched.docs import Docs
 from .paperqa_patched.readers import read_doc_patched
+from .utils import is_lambda
 
 
 class DocumentIndexer(ABC):
@@ -27,10 +28,15 @@ class DocumentIndexer(ABC):
     def __init__(
         self,
         docs: Optional[List[str]] = None,
-        text_preprocesor: Optional[Callable] = None,
+        text_preprocessor: Optional[Callable] = None,
         debug: bool = False,
     ) -> None:
-        self.text_preprocesor = text_preprocesor or (lambda x: x)
+        if is_lambda(text_preprocessor):
+            raise TypeError(
+                "Make sure text_preprocessor is not a lambda function. [Reason: can't pickle!]",
+            )
+
+        self.text_preprocessor = text_preprocessor or (lambda x: x)
         self.debug = debug
         self.docs = docs or []
         self.doc_store = None
@@ -64,11 +70,11 @@ class PaperQADocumentIndexer(DocumentIndexer):
         embeddings: Optional[Embeddings] = None,
         docs: Optional[List[str]] = None,
         doc_store: Optional[Docs] = None,
-        text_preprocesor: Optional[Callable] = None,
+        text_preprocessor: Optional[Callable] = None,
         debug: bool = False,
         **paperqa_kwargs,
     ) -> None:
-        super().__init__(docs=docs, text_preprocesor=text_preprocesor, debug=debug)
+        super().__init__(docs=docs, text_preprocessor=text_preprocessor, debug=debug)
 
         llm = llm or ChatOpenAI(model="gpt-3.5-turbo", temperature=0.0)
         embeddings = embeddings or OpenAIEmbeddings(client=None)
@@ -78,7 +84,7 @@ class PaperQADocumentIndexer(DocumentIndexer):
         self.doc_store = doc_store or Docs(
             llm=llm,
             embeddings=embeddings,
-            text_preprocesor=self.text_preprocesor,
+            text_preprocessor=self.text_preprocessor,
             **paperqa_kwargs,
         )
 
@@ -128,11 +134,11 @@ class DocumentMetadataIndexer(DocumentIndexer):
         self,
         schema: Type[BaseModel],
         *,
-        text_preprocesor: Optional[Callable] = None,
+        text_preprocessor: Optional[Callable] = None,
         metadata_extractor: Type[AbstractMetadataExtractor] = None,
         debug: bool = False,
     ) -> None:
-        super().__init__(debug=debug, text_preprocesor=text_preprocesor)
+        super().__init__(debug=debug, text_preprocessor=text_preprocessor)
         self.metadata_extractor = (
             metadata_extractor
             or InstructorBasedOpenAIMetadataExtractor(
@@ -157,7 +163,7 @@ class DocumentMetadataIndexer(DocumentIndexer):
             text = read_doc_patched(
                 p,
                 Doc(citation=p, dockey=p, docname=p),
-                text_preprocesor=self.text_preprocesor,
+                text_preprocessor=self.text_preprocessor,
             )
             text = map(lambda x: x.text, text)
             text = "\n".join(text)
