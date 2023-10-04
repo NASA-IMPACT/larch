@@ -56,9 +56,12 @@ class SimpleRAG(AbstractSearchEngine):
         self._cache = cache
         self.cache_store = {}
 
-    def query(self, query: str) -> str:
+    def query(self, query: str, **kwargs) -> str:
         query_hash = hash(query)
-        result = self.cache_store.get(query_hash) or self.document_indexer.query(query)
+        result = (
+            self.cache_store.get(query_hash)
+            or self.document_indexer.query(query, **kwargs).strip()
+        )
         self.cache_store[query_hash] = result
         return result
 

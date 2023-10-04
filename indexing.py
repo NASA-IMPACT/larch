@@ -6,9 +6,15 @@ from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, List, Optional, Type
 
 from langchain.base_language import BaseLanguageModel
+from langchain.chains import ConversationalRetrievalChain, RetrievalQA
+from langchain.chains.base import Chain
+from langchain.chains.question_answering import load_qa_chain
 from langchain.chat_models import ChatOpenAI
+from langchain.document_loaders import PyPDFLoader
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.schema.embeddings import Embeddings
+from langchain.text_splitter import TextSplitter, TokenTextSplitter
+from langchain.vectorstores import FAISS, VectorStore
 from loguru import logger
 from paperqa import Doc, Text
 from pydantic import BaseModel
@@ -122,6 +128,84 @@ class PaperQADocumentIndexer(DocumentIndexer):
     @property
     def texts(self) -> List[Text]:
         return self.doc_store.texts
+
+
+class LangchainDocumentIndexer(DocumentIndexer):
+    """
+    Uses paperqa indexing pipeline to index documents provided that we have a list of paths.
+    """
+
+    def __init__(
+        self,
+        llm: Optional[BaseLanguageModel] = None,
+        embeddings: Optional[Embeddings] = None,
+        docs: Optional[List[str]] = None,
+        vector_store: Optional[VectorStore] = None,
+        text_preprocessor: Optional[Callable] = None,
+        text_splitter: Optional[TextSplitter] = None,
+        debug: bool = False,
+    ) -> None:
+        super().__init__(docs=docs, text_preprocessor=text_preprocessor, debug=debug)
+
+        self.llm = llm or ChatOpenAI(model="gpt-3.5-turbo", temperature=0.0)
+        self.embeddings = embeddings or OpenAIEmbeddings(client=None)
+        self.vector_store = vector_store
+        self.text_splitter = text_splitter
+
+    def qa_chain(self, k: int = 15) -> Type[Chain]:
+        return RetrievalQA(
+            combine_documents_chain=load_qa_chain(self.llm, chain_type="stuff"),
+            retriever=self.vector_store.as_retriever(k=k),
+        )
+
+    def doc_store(self):
+        return self.vector_store.docstore
+
+    def _get_documents(self, paths: List[str]):
+        if self.debug:
+            logger.debug(f"Loading and preprocessing...")
+        docs = []
+        for path in tqdm(paths):
+            if path in self.docs:
+                continue
+            _docs = PyPDFLoader(path).load()
+            for _doc in _docs:
+                _doc.page_content = self.text_preprocessor(_doc.page_content)
+            docs.extend(_docs)
+            self.docs.append(path)
+        if self.text_splitter is not None and isinstance(
+            self.text_splitter,
+            TextSplitter,
+        ):
+            docs = self.text_splitter.split_documents(docs)
+        return docs
+
+    def index_documents(self, paths: List[str], **kwargs) -> Optional[VectorStore]:
+        docs = self._get_documents(paths)
+        if self.debug:
+            logger.debug(f"Indexing...")
+        if len(docs) < 1:
+            logger.warning(
+                f"Skipping indexing and returning existing vector store. Either empty docs or no new docs found!",
+            )
+            return self.vector_store
+        if self.vector_store is None:
+            self.vector_store = FAISS.from_documents(docs, self.embeddings)
+        else:
+            self.vector_store.add_documents(docs)
+        if self.debug:
+            logger.debug(f"Indexed {len(docs)} documents from {len(paths)} files.")
+        return self.vector_store
+
+    def query_vectorstore(self, query: str, k=15) -> str:
+        return self.vector_store.similarity_search(query, k=k)
+
+    def query(self, query: str, k=15) -> str:
+        inp = dict(query=query, question=query)
+        result = self.qa_chain(k=k)(inp)
+        if self.debug:
+            logger.debug(result)
+        return result.get("result", "").strip()
 
 
 class DocumentMetadataIndexer(DocumentIndexer):
