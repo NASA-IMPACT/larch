@@ -3,18 +3,20 @@
 import json
 import pickle
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from langchain.base_language import BaseLanguageModel
 from langchain.chat_models import ChatOpenAI
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.schema.embeddings import Embeddings
 from loguru import logger
-from paperqa import Doc, Docs
-from paperqa.readers import read_doc
+from paperqa import Doc, Text
 from pydantic import BaseModel
+from tqdm import tqdm
 
-from .metadata import AbstractMetadataExtractor
+from .metadata import AbstractMetadataExtractor, InstructorBasedOpenAIMetadataExtractor
+from .paperqa_patched.docs import Docs
+from .paperqa_patched.readers import read_doc_patched
 
 
 class DocumentIndexer(ABC):
@@ -22,7 +24,13 @@ class DocumentIndexer(ABC):
     Abstract Base Class for setting up document indexer type
     """
 
-    def __init__(self, docs: Optional[List[str]] = None, debug: bool = False) -> None:
+    def __init__(
+        self,
+        docs: Optional[List[str]] = None,
+        text_preprocesor: Optional[Callable] = None,
+        debug: bool = False,
+    ) -> None:
+        self.text_preprocesor = text_preprocesor or (lambda x: x)
         self.debug = debug
         self.docs = docs or []
         self.doc_store = None
@@ -56,24 +64,33 @@ class PaperQADocumentIndexer(DocumentIndexer):
         embeddings: Optional[Embeddings] = None,
         docs: Optional[List[str]] = None,
         doc_store: Optional[Docs] = None,
+        text_preprocesor: Optional[Callable] = None,
         debug: bool = False,
+        **paperqa_kwargs,
     ) -> None:
-        super().__init__(docs=docs, debug=debug)
+        super().__init__(docs=docs, text_preprocesor=text_preprocesor, debug=debug)
 
         llm = llm or ChatOpenAI(model="gpt-3.5-turbo", temperature=0.0)
         embeddings = embeddings or OpenAIEmbeddings(client=None)
 
-        self.doc_store = doc_store or Docs(llm=llm, embeddings=embeddings)
+        # if doc_store is provided externally, just use that
+        # else construct a new one
+        self.doc_store = doc_store or Docs(
+            llm=llm,
+            embeddings=embeddings,
+            text_preprocesor=self.text_preprocesor,
+            **paperqa_kwargs,
+        )
 
     def index_documents(self, paths: List[str], **kwargs) -> Any:
-        for path in paths:
+        for path in tqdm(paths):
             if path in self.docs:
                 continue
             if self.debug:
-                print(f"Creating index for src={path}")
+                logger.debug(f"Creating index for src={path}")
             self.doc_store.add(path)
         if self.debug:
-            print(f"Total of {len(self.doc_store.texts)} pages indexed.")
+            logger.debug(f"Total of {len(self.doc_store.texts)} pages indexed.")
 
         self.docs.extend(paths)
         return self
@@ -96,6 +113,10 @@ class PaperQADocumentIndexer(DocumentIndexer):
     def query(self, query: str, **kwargs) -> str:
         return self.doc_store.query(query).answer
 
+    @property
+    def texts(self) -> List[Text]:
+        return self.doc_store.texts
+
 
 class DocumentMetadataIndexer(DocumentIndexer):
     """
@@ -107,10 +128,11 @@ class DocumentMetadataIndexer(DocumentIndexer):
         self,
         schema: Type[BaseModel],
         *,
+        text_preprocesor: Optional[Callable] = None,
         metadata_extractor: Type[AbstractMetadataExtractor] = None,
         debug: bool = False,
     ) -> None:
-        super().__init__(debug=debug)
+        super().__init__(debug=debug, text_preprocesor=text_preprocesor)
         self.metadata_extractor = (
             metadata_extractor
             or InstructorBasedOpenAIMetadataExtractor(
@@ -127,12 +149,16 @@ class DocumentMetadataIndexer(DocumentIndexer):
 
     def index_documents(self, paths: List[str]) -> Dict[str, BaseModel]:
         mstore = {}
-        for p in paths:
+        for p in tqdm(paths):
             if p in self.metadata_store:
                 mstore[p] = self.metadata_store[p]
                 continue
 
-            text = read_doc(p, Doc(citation=p, dockey=p, docname=p))
+            text = read_doc_patched(
+                p,
+                Doc(citation=p, dockey=p, docname=p),
+                text_preprocesor=self.text_preprocesor,
+            )
             text = map(lambda x: x.text, text)
             text = "\n".join(text)
 
