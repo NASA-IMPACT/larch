@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from __future__ import annotations
 
 import json
 import pickle
@@ -44,8 +45,16 @@ class DocumentIndexer(ABC):
 
         self.text_preprocessor = text_preprocessor or (lambda x: x)
         self.debug = debug
-        self.docs = docs or []
+        self._docs = docs or []
         self.doc_store = None
+
+    @property
+    def docs(self) -> List[str]:
+        return self._docs
+
+    @docs.setter
+    def docs(self, x):
+        self._docs = x
 
     @abstractmethod
     def index_documents(self, docs: List[str], **kwargs) -> Any:
@@ -94,20 +103,25 @@ class PaperQADocumentIndexer(DocumentIndexer):
             **paperqa_kwargs,
         )
 
-    def index_documents(self, paths: List[str], **kwargs) -> Any:
+    def index_documents(self, paths: List[str], **kwargs) -> PaperQADocumentIndexer:
+        _texts_len_original = len(self.texts)
+        _docs = []
         for path in tqdm(paths):
             if path in self.docs:
                 continue
             if self.debug:
                 logger.debug(f"Creating index for src={path}")
             self.doc_store.add(path)
-        if self.debug:
-            logger.debug(f"Total of {len(self.doc_store.texts)} pages indexed.")
+            _docs.append(path)
+        self.docs.extend(_docs)
 
-        self.docs.extend(paths)
+        if self.debug:
+            _n_added = len(self.texts) - _texts_len_original
+            logger.debug(f"Total of {len(_docs)} docs and {_n_added} pages indexed.")
+
         return self
 
-    def save_index(self, path: str):
+    def save_index(self, path: str) -> PaperQADocumentIndexer:
         if not self.doc_store:
             return
         dump_val = dict(docs=self.docs, doc_store=self.doc_store)
@@ -116,7 +130,7 @@ class PaperQADocumentIndexer(DocumentIndexer):
             pickle.dump(dump_val, f)
         return self
 
-    def load_index(self, path: str):
+    def load_index(self, path: str) -> PaperQADocumentIndexer:
         with open(path, "rb") as f:
             dump_val = pickle.load(f)
             self.docs, self.doc_store = dump_val["docs"], dump_val["doc_store"]
@@ -152,6 +166,17 @@ class LangchainDocumentIndexer(DocumentIndexer):
         self.vector_store = vector_store
         self.text_splitter = text_splitter
 
+    @property
+    def docs(self) -> List[str]:
+        _paths = []
+        if self.vector_store is not None:
+            _paths = map(
+                lambda x: x.metadata.get("source", None),
+                self.vector_store.docstore._dict.values(),
+            )
+        _paths = filter(None, _paths)
+        return list(set(_paths))
+
     def qa_chain(self, k: int = 15) -> Type[Chain]:
         return RetrievalQA(
             combine_documents_chain=load_qa_chain(self.llm, chain_type="stuff"),
@@ -180,7 +205,7 @@ class LangchainDocumentIndexer(DocumentIndexer):
             docs = self.text_splitter.split_documents(docs)
         return docs
 
-    def index_documents(self, paths: List[str], **kwargs) -> Optional[VectorStore]:
+    def index_documents(self, paths: List[str], **kwargs) -> LangchainDocumentIndexer:
         docs = self._get_documents(paths)
         if self.debug:
             logger.debug(f"Indexing...")
@@ -195,7 +220,7 @@ class LangchainDocumentIndexer(DocumentIndexer):
             self.vector_store.add_documents(docs)
         if self.debug:
             logger.debug(f"Indexed {len(docs)} documents from {len(paths)} files.")
-        return self.vector_store
+        return self
 
     def query_vectorstore(self, query: str, k=15) -> str:
         return self.vector_store.similarity_search(query, k=k)
@@ -206,6 +231,28 @@ class LangchainDocumentIndexer(DocumentIndexer):
         if self.debug:
             logger.debug(result)
         return result.get("result", "").strip()
+
+    def save_index(
+        self,
+        store_dir: str = "tmp/",
+        index_name: str = "index",
+    ) -> LangchainDocumentIndexer:
+        self.vector_store.save_local(store_dir, index_name)
+        return self
+
+    def load_index(
+        self,
+        vector_store_cls: Type[VectorStore],
+        store_dir: str,
+        embeddings: "Embeddings",
+        index_name: str = "index",
+    ) -> LangchainDocumentIndexer:
+        self.vector_store = vector_store_cls.load_local(
+            store_dir,
+            embeddings,
+            index_name,
+        )
+        return self
 
 
 class DocumentMetadataIndexer(DocumentIndexer):
