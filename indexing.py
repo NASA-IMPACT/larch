@@ -137,7 +137,8 @@ class PaperQADocumentIndexer(DocumentIndexer):
         return self
 
     def query(self, query: str, **kwargs) -> str:
-        return self.doc_store.query(query).answer
+        query = query.strip()
+        return self.doc_store.query(query).answer if query else ""
 
     @property
     def texts(self) -> List[Text]:
@@ -226,7 +227,12 @@ class LangchainDocumentIndexer(DocumentIndexer):
         return self.vector_store.similarity_search(query, k=k)
 
     def query(self, query: str, k=15) -> str:
+        query = query.strip()
+        if not query:
+            return ""
         inp = dict(query=query, question=query)
+        if self.debug:
+            logger.debug(f"Using k={k}")
         result = self.qa_chain(k=k)(inp)
         if self.debug:
             logger.debug(result)
