@@ -10,7 +10,9 @@ from typing import Callable, List, Optional, Type
 import instructor
 import openai
 from langchain.chains import create_extraction_chain
+from langchain.chat_models import ChatOpenAI
 from langchain.chat_models.base import BaseLanguageModel
+from langchain.schema import BasePromptTemplate
 from loguru import logger
 from pydantic import BaseModel, ValidationError
 
@@ -18,6 +20,17 @@ from pydantic import BaseModel, ValidationError
 class AbstractMetadataExtractor(ABC):
     """
     Each MetadataExtractor can be used like a functor through __call__.
+
+    Any downstream implementation/subclass should implement `_extract(...)`
+    method.
+
+    Args:
+        ```preprocess_func```: ```Optional[Callable]```
+            A callable that preprocessing input text string.
+            Defaults to merging multiple whitespace into single.
+        ```debug```: ```bool```
+            Flag to enable debug mode logs.
+            Defaults to `False`
     """
 
     def __init__(
@@ -29,6 +42,16 @@ class AbstractMetadataExtractor(ABC):
         self.preprocess_func = preprocess_func or self._preprocess_text
 
     def extract_metadata(self, text: str) -> Optional[Type[BaseModel]]:
+        """
+        Extract metadata from the input text
+
+        Args:
+            ```text```: ```str```
+                Input text from which metadata is extracted
+
+        Returns:
+            Return a pydantic schema object to map the metadata
+        """
         text = self._preprocess_text(text)
         return self._extract(text) if text else None
 
@@ -140,17 +163,27 @@ class LangchainBasedMetadataExtractor(AbstractMetadataExtractor):
         self,
         schema: Type[BaseModel],
         llm: Optional[Type[BaseLanguageModel]] = None,
+        prompt: Optional[BasePromptTemplate] = None,
         debug: bool = False,
     ):
         super().__init__(debug=debug)
         self.llm = llm or ChatOpenAI(temperature=0, model="gpt-3.5-turbo")
         self.schema = schema
-        self.chain = self._create_chain(schema=schema, llm=llm)
+        self.chain = self._create_chain(schema=schema, llm=llm, prompt=prompt)
 
-    def _create_chain(self, schema, llm):
+    @property
+    def prompt(self):
+        return self.chain.prompt
+
+    @staticmethod
+    def _create_chain(
+        schema: BaseModel,
+        llm: Type[BaseLanguageModel],
+        prompt: Optional[BasePromptTemplate] = None,
+    ):
         if not isinstance(schema, dict):
             schema = schema.model_json_schema()
-        return create_extraction_chain(schema=schema, llm=llm)
+        return create_extraction_chain(schema=schema, llm=llm, prompt=prompt)
 
     def _extract(self, text: str):
         response = self.chain.run(text)
