@@ -4,5 +4,6 @@ from .engines import (
     EnsembleAugmentedSearchEngine,
     MetadataBasedAugmentedSearchEngine,
     SimpleRAG,
+    SinequaSearchEngine,
     SQLAgentSearchEngine,
 )

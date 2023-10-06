@@ -14,6 +14,7 @@ from langchain.llms import OpenAI
 from langchain.prompts import PromptTemplate
 from langchain.utilities import SQLDatabase
 from loguru import logger
+from pynequa import QueryParams, Sinequa
 
 from ..indexing import DocumentIndexer
 from ..metadata import AbstractMetadataExtractor
@@ -43,8 +44,8 @@ class AbstractSearchEngine(ABC):
 class SimpleRAG(AbstractSearchEngine):
     """
     This uses vector store and indexed document for full text search.
-    This is appropriate when the input query/question does not conform to the metadata directly.
-    Use this when all other tools fail.
+    This is appropriate when the input query/question does not conform
+    to the metadata directly. Use this when all other tools fail.
     """
 
     def __init__(
@@ -69,10 +70,11 @@ class SimpleRAG(AbstractSearchEngine):
 class SQLAgentSearchEngine(AbstractSearchEngine):
     """
     This search engine uses an SQL agent to best answer the given query.
-    Based on given query, it generates an appropriate SQL query internally and runs the query to generate response text.
-    Use this whenever there's a complex query that SQL syntax can support such as grouping, ordering, counting, etc.
-
-    If this fails to answer the query, use `MetadataBasedAugmentedSearchEngine` instead.
+    Based on given query, it generates an appropriate SQL query internally and
+    runs the query to generate response text. Use this whenever there's a
+    complex query that SQL syntax can support such as grouping, ordering,
+    counting, etc. If this fails to answer the query, use
+    `MetadataBasedAugmentedSearchEngine` instead.
     """
 
     def __init__(
@@ -100,10 +102,12 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
 class MetadataBasedAugmentedSearchEngine(AbstractSearchEngine):
     """
     It uses text-to-sql algorithm through langchain's sql-query-chain.
-    It first extracts metadata from the given input query using metadata extractor.
-    Then uses the extracted json to best construct a valid SQL query which is then further executed
-    on the database to return the final answer.
-    The best case scenario to use this is when we have sufficiently enough metadta information to generate a very accurate SQL query.
+    It first extracts metadata from the given input query using metadata
+    extractor. Then uses the extracted json to best construct a valid
+    SQL query which is then further executed on the database to return
+    the final answer. The best case scenario to use this is when we
+    have sufficiently enough metadta information to generate a very
+    accurate SQL query.
     """
 
     _SQLITE_PROMPT = PromptTemplate(
@@ -169,9 +173,9 @@ class EnsembleAugmentedSearchEngine(AbstractSearchEngine):
 
     _PROMPT = """
     Following are the systems generated answers in response to user input query.
-    I want you to best consolidate the response that is accurate and coherent based on all those answers.
-    Don't give response that doesn't belong within the generated answers.
-    Here are the answers:\n
+    I want you to best consolidate the response that is accurate and coherent based on
+    all those answers. Don't give response that doesn't belong within the generated
+    answers. Here are the answers:\n
     """
 
     def __init__(
@@ -211,6 +215,82 @@ class EnsembleAugmentedSearchEngine(AbstractSearchEngine):
             logger.debug(f"OpenAI response :: {response}")
 
         return response.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+
+class SinequaSearchEngine(AbstractSearchEngine):
+    """
+    This class uses Sinequa as search engine. Given a query and metadata
+    it will perform faceted searcha and provide a set of matches.
+
+    Args:
+        base_url (str): The base URL for the sinequa instance
+        auth_token (str): Authentication token for sinequa instance
+        app_name (str, optional): The name of the Sinequa application
+                                (default is "vanilla-search").
+        query_name (str, optional): The name of the query (default
+                                is "query").
+        debug (bool, optional): Flag indicating whether to enable debug mode (default is False).
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        auth_token: str,
+        app_name: str = "vanilla-search",
+        query_name: str = "query",
+        debug: bool = False,
+    ) -> None:
+        """
+        Initializes a new instance of SinequaSearchEngine class.
+        """
+        super().__init__(debug)
+        self.sinequa = Sinequa(
+            config={
+                "base_url": base_url,
+                "access_token": auth_token,
+                "app_name": app_name,
+                "query_name": query_name,
+            },
+        )
+
+    def query(self, query: str, **kwargs) -> str:
+        """ "
+        Executes a search query on the Sinequa platform
+
+        Args:
+            query (str): The search query.
+            **kwargs: Additional keyword arguments (e.g., page, page_size).
+
+        Returns:
+            str: The matching passages as a single string.
+        """
+        # build query params payload
+
+        if self.debug:
+            logger.debug(f"query: {query}")
+
+        query_params = QueryParams()
+        query_params.search_text = query
+        query_params.page = kwargs.get("page", 1)
+        query_params.page_size = kwargs.get("page_size", 10)
+
+        results = self.sinequa.search_query(query_params)
+
+        if "ErrorCode" in results:
+            error_message = results["ErrorMessage"]
+            logger.error(error_message)
+            raise Exception(f"Error: {error_message}")
+
+        # the answer we're looking for is inside
+        # topPassages -> passages -> [highlightedText]
+
+        top_passages = results["topPassages"]["passages"]
+
+        matching_passages = ""
+        for passages in top_passages:
+            matching_passages += passages["highlightedText"] + " "
+
+        return matching_passages
 
 
 def main():
