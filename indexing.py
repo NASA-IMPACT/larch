@@ -24,6 +24,7 @@ from tqdm import tqdm
 from .metadata import AbstractMetadataExtractor, InstructorBasedOpenAIMetadataExtractor
 from .paperqa_patched.docs import Docs
 from .paperqa_patched.readers import read_doc_patched
+from .structures import Document
 from .utils import is_lambda
 
 
@@ -68,6 +69,15 @@ class DocumentIndexer(ABC):
 
     def load_index(self, path: str):
         raise NotImplementedError()
+
+    def query_vectorstore(self, query: str, top_k: int = 5, **kwargs) -> List[Document]:
+        """
+        Queries the document/vector store
+        """
+        raise NotImplementedError()
+
+    def query_top_k(self, query: str, top_k: int = 5, **kwargs) -> List[Document]:
+        return self.query_vectorstore(query, top_k, **kwargs)
 
     @abstractmethod
     def query(self, query: str, **kwargs) -> str:
@@ -135,6 +145,18 @@ class PaperQADocumentIndexer(DocumentIndexer):
             dump_val = pickle.load(f)
             self.docs, self.doc_store = dump_val["docs"], dump_val["doc_store"]
         return self
+
+    def query_vectorstore(self, query: str, top_k: int = 5, **kwargs) -> List[Document]:
+        """
+        Queries the document/vector store
+        """
+
+        docs = []
+        vecstore = self.doc_store.doc_index or self.doc_store.texts_index
+        if vecstore is not None:
+            docs = vecstore.similarity_search(query, k=top_k)
+            docs = list(map(lambda d: Document.from_langchain_document(d), docs))
+        return docs
 
     def query(self, query: str, **kwargs) -> str:
         query = query.strip()
@@ -209,7 +231,7 @@ class LangchainDocumentIndexer(DocumentIndexer):
     def index_documents(self, paths: List[str], **kwargs) -> LangchainDocumentIndexer:
         docs = self._get_documents(paths)
         if self.debug:
-            logger.debug(f"Indexing...")
+            logger.debug("Indexing...")
         if len(docs) < 1:
             logger.warning(
                 f"Skipping indexing and returning existing vector store. Either empty docs or no new docs found!",
@@ -223,17 +245,18 @@ class LangchainDocumentIndexer(DocumentIndexer):
             logger.debug(f"Indexed {len(docs)} documents from {len(paths)} files.")
         return self
 
-    def query_vectorstore(self, query: str, k=15) -> str:
-        return self.vector_store.similarity_search(query, k=k)
+    def query_vectorstore(self, query: str, top_k=15, **kwargs) -> List[Document]:
+        lang_docs = self.vector_store.similarity_search(query, k=top_k)
+        return list(map(lambda d: Document.from_langchain_document(d), lang_docs))
 
-    def query(self, query: str, k=15) -> str:
+    def query(self, query: str, top_k=15, **kwargs) -> str:
         query = query.strip()
         if not query:
             return ""
         inp = dict(query=query, question=query)
         if self.debug:
-            logger.debug(f"Using k={k}")
-        result = self.qa_chain(k=k)(inp)
+            logger.debug(f"Using k={top_k}")
+        result = self.qa_chain(k=top_k)(inp)
         if self.debug:
             logger.debug(result)
         return result.get("result", "").strip()
