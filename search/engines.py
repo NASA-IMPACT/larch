@@ -2,22 +2,27 @@
 
 import json
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Type
+from typing import Any, List, Optional, Type
 
 import openai
 from langchain.agents import create_sql_agent
 from langchain.agents.agent_toolkits import SQLDatabaseToolkit
 from langchain.agents.agent_types import AgentType
+from langchain.base_language import BaseLanguageModel
 from langchain.chains import create_sql_query_chain
+from langchain.chains.question_answering import load_qa_chain
 from langchain.chat_models import ChatOpenAI
 from langchain.llms import OpenAI
 from langchain.prompts import PromptTemplate
+from langchain.prompts.base import BasePromptTemplate
 from langchain.utilities import SQLDatabase
 from loguru import logger
 from pynequa import QueryParams, Sinequa
 
 from ..indexing import DocumentIndexer
 from ..metadata import AbstractMetadataExtractor
+from ..prompts import QA_DOCUMENTS_PROMPT
+from ..structures import Document
 
 
 class AbstractSearchEngine(ABC):
@@ -65,6 +70,76 @@ class SimpleRAG(AbstractSearchEngine):
         )
         self.cache_store[query_hash] = result
         return result
+
+
+class InMemoryDocumentQAEngine(AbstractSearchEngine):
+    """
+    This QA Engine uses provided list of documents to answer questions
+    based on only those documents.
+    """
+
+    def __init__(
+        self,
+        documents: List[Document],
+        llm: Optional[BaseLanguageModel] = None,
+        prompt: Optional[BasePromptTemplate] = QA_DOCUMENTS_PROMPT,
+        combine_technique: "str" = "stuff",
+        debug: bool = False,
+    ) -> None:
+        super().__init__(debug=debug)
+        self.llm = llm or ChatOpenAI(temperature=0.0, model="gpt-3.5-turbo")
+        self.documents = documents or []
+        self.prompt = prompt
+        self.chain = load_qa_chain(
+            llm=self.llm,
+            chain_type=combine_technique,
+            prompt=prompt,
+            verbose=self.debug,
+        )
+
+    def query(self, query: str, **kwargs) -> str:
+        documents = self.documents or kwargs.get("documents", [])
+        if not documents:
+            logger.warning("Empty document list!")
+            return ""
+        docs = list(map(lambda x: x.as_langchain_document(), documents))
+        return self.chain(
+            dict(input_documents=docs, question=query),
+            return_only_outputs=True,
+        ).get("output_text", "")
+
+
+class DocumentStoreRAG(AbstractSearchEngine):
+    """
+    This RAG uses provided document indexer/store to first fetch/retrieve
+    top_k documents which are used for further augmented generation
+    based on given query.
+    """
+
+    def __init__(
+        self,
+        document_store: DocumentIndexer,
+        qa_engine: Optional[InMemoryDocumentQAEngine] = None,
+        llm: Optional[BaseLanguageModel] = None,
+        prompt: Optional[BasePromptTemplate] = QA_DOCUMENTS_PROMPT,
+        debug: bool = False,
+    ):
+        super().__init__(debug=debug)
+        self.document_store = document_store
+        self.qa_engine = qa_engine or InMemoryDocumentQAEngine(
+            documents=None,
+            llm=llm,
+            prompt=prompt,
+            debug=debug,
+        )
+        self.llm = llm
+        self.prompt = prompt
+
+    def query(self, query: str, top_k: int = 5, **kwargs) -> str:
+        documents = self.document_store.query_top_k(query=query, top_k=top_k, **kwargs)
+        if self.debug:
+            logger.debug(f"top_k={top_k} documents :: {documents}")
+        return self.qa_engine(query=query, documents=documents, **kwargs)
 
 
 class SQLAgentSearchEngine(AbstractSearchEngine):
