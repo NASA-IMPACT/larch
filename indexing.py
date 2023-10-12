@@ -418,8 +418,8 @@ class SinequaDocumentIndexer(DocumentIndexer):
             debug=debug,
         )
 
-        self.sinequa = Sinequa(
-            config={
+        self.sinequa = Sinequa.from_config(
+            cfg={
                 "base_url": base_url,
                 "access_token": auth_token,
                 "app_name": app_name,

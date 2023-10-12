@@ -319,8 +319,8 @@ class SinequaSearchEngine(AbstractSearchEngine):
         Initializes a new instance of SinequaSearchEngine class.
         """
         super().__init__(debug)
-        self.sinequa = Sinequa(
-            config={
+        self.sinequa = Sinequa.from_config(
+            cfg={
                 "base_url": base_url,
                 "access_token": auth_token,
                 "app_name": app_name,
