@@ -45,7 +45,7 @@ class NeedMetadata(BaseModel):
     solution_category: List[str] = Field(..., description="List of solution categories")
 
 
-class Metadata(OpenAISchema):
+class Metadata(BaseModel):
     """Metadata and entities extracted from the given document that consists of need and assessments data as well.
     Strictly don't generate unwanted metadata if not present.
     If entities can't be found, strictly don't extract them. Avoid outputing unknown values.
@@ -54,7 +54,7 @@ class Metadata(OpenAISchema):
     class Config:
         validation = False
 
-    need_id: Optional[int] = Field(
+    need_id: Optional[str] = Field(
         ...,
         description="id of need submitted by agency only if present in the document",
     )
