@@ -10,6 +10,7 @@ from langchain.agents.agent_toolkits import SQLDatabaseToolkit
 from langchain.agents.agent_types import AgentType
 from langchain.base_language import BaseLanguageModel
 from langchain.chains import create_sql_query_chain
+from langchain.chains.llm import LLMChain
 from langchain.chains.question_answering import load_qa_chain
 from langchain.chat_models import ChatOpenAI
 from langchain.llms import OpenAI
@@ -78,6 +79,8 @@ class InMemoryDocumentQAEngine(AbstractSearchEngine):
     based on only those documents.
     """
 
+    _DEFAULT_NO_RESPONSE = "No answer can be inferred!"
+
     def __init__(
         self,
         documents: List[Document],
@@ -90,10 +93,20 @@ class InMemoryDocumentQAEngine(AbstractSearchEngine):
         self.llm = llm or ChatOpenAI(temperature=0.0, model="gpt-3.5-turbo")
         self.documents = documents or []
         self.prompt = prompt
-        self.chain = load_qa_chain(
+        self.combine_technique = (combine_technique or "stuff").strip()
+        self.chain = self.get_chain(self.combine_technique)
+
+    def get_chain(self, combine_technique: str = "stuff") -> LLMChain:
+        if combine_technique == "stuff":
+            return load_qa_chain(
+                llm=self.llm,
+                chain_type=combine_technique,
+                prompt=self.prompt,
+                verbose=self.debug,
+            )
+        return load_qa_chain(
             llm=self.llm,
             chain_type=combine_technique,
-            prompt=prompt,
             verbose=self.debug,
         )
 
@@ -101,7 +114,7 @@ class InMemoryDocumentQAEngine(AbstractSearchEngine):
         documents = self.documents or kwargs.get("documents", [])
         if not documents:
             logger.warning("Empty document list!")
-            return ""
+            return self._DEFAULT_NO_RESPONSE
         docs = list(map(lambda x: x.as_langchain_document(), documents))
         return self.chain(
             dict(input_documents=docs, question=query),
@@ -126,14 +139,27 @@ class DocumentStoreRAG(AbstractSearchEngine):
     ):
         super().__init__(debug=debug)
         self.document_store = document_store
+
+        # either one of them has to be provided
+        if qa_engine is None and llm is None:
+            raise ValueError(
+                "Both the qa_engine and llm arguments can't be none. Expected: provide at least one of them!",
+            )
+
         self.qa_engine = qa_engine or InMemoryDocumentQAEngine(
             documents=None,
             llm=llm,
             prompt=prompt,
             debug=debug,
         )
-        self.llm = llm
-        self.prompt = prompt
+
+    @property
+    def llm(self):
+        return self.qa_engine.llm
+
+    @property
+    def prompt(self):
+        return self.qa_engine.prompt
 
     def query(self, query: str, top_k: int = 5, **kwargs) -> str:
         documents = self.document_store.query_top_k(query=query, top_k=top_k, **kwargs)
