@@ -18,6 +18,7 @@ from langchain.schema import BasePromptTemplate, OutputParserException
 from loguru import logger
 from pydantic import BaseModel, ValidationError
 
+from ..utils import PydanticOutputParserWithoutValidation
 from ._base import AbstractMetadataExtractor
 
 
@@ -164,11 +165,14 @@ class LegacyMetadataExtractor(AbstractMetadataExtractor):
         prompt: Optional[Union[BasePromptTemplate, str]] = None,
         preprocessor: Optional[Callable] = None,
         whitelist_map: Optional[Dict[str, List[str]]] = None,
+        output_parser: Optional[PydanticOutputParser] = None,
         debug: bool = False,
     ) -> None:
         super().__init__(preprocessor=preprocessor, debug=debug)
         self.schema = schema
-        self.parser = PydanticOutputParser(pydantic_object=schema)
+        self.parser = output_parser or PydanticOutputParserWithoutValidation(
+            pydantic_object=schema,
+        )
         self.llm = llm or ChatOpenAI(temperature=0.0, model="gpt-3.5-turbo-0613")
         self.whitelist_map = whitelist_map or {}
         self.prompt = self._build_prompt(prompt)
@@ -193,6 +197,8 @@ class LegacyMetadataExtractor(AbstractMetadataExtractor):
             ).to_messages(),
         )
         response = model_response.content
+        if self.debug:
+            logger.debug(f"Model response :: {response}")
         response = self.__fix_response(response)
         return self.schema.model_construct(**response)
 
