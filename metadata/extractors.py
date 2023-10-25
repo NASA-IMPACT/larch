@@ -40,9 +40,10 @@ class SimpleOpenAIMetadataExtractor(AbstractMetadataExtractor):
         schema: Type[BaseModel],
         model: str = "gpt-3.5-turbo-0613",
         system_prompt: str = _SYSTEM_PROMPT,
+        preprocessor: Optional[Callable] = None,
         debug: bool = False,
     ) -> None:
-        super().__init__(debug=debug)
+        super().__init__(debug=debug, preprocessor=preprocessor)
         self.model = model
         self.schema = schema
         self._system_prompt = system_prompt
@@ -114,9 +115,10 @@ class LangchainBasedMetadataExtractor(AbstractMetadataExtractor):
         schema: Type[BaseModel],
         llm: Optional[Type[BaseLanguageModel]] = None,
         prompt: Optional[BasePromptTemplate] = None,
+        preprocessor: Optional[Callable] = None,
         debug: bool = False,
     ):
-        super().__init__(debug=debug)
+        super().__init__(debug=debug, preprocessor=preprocessor)
         self.llm = llm or ChatOpenAI(temperature=0, model="gpt-3.5-turbo")
         self.schema = schema
         self.chain = self._create_chain(schema=schema, llm=llm, prompt=prompt)
