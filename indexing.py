@@ -314,6 +314,7 @@ class DocumentMetadataIndexer(DocumentIndexer):
         *,
         text_preprocessor: Optional[Callable] = None,
         metadata_extractor: Type[AbstractMetadataExtractor] = None,
+        skip_errors: bool = False,
         debug: bool = False,
     ) -> None:
         super().__init__(debug=debug, text_preprocessor=text_preprocessor)
@@ -326,6 +327,7 @@ class DocumentMetadataIndexer(DocumentIndexer):
             )
         )
         self.metadata_store = {}
+        self.skip_errors = skip_errors
 
     @property
     def schema(self) -> Type[BaseModel]:
@@ -354,7 +356,14 @@ class DocumentMetadataIndexer(DocumentIndexer):
             if self.debug:
                 logger.debug(f"Extracting metadata from {p}")
 
-            mstore[p] = self.metadata_extractor(text)
+            try:
+                mstore[p] = self.metadata_extractor(text)
+            except Exception as e:
+                if self.skip_errors:
+                    logger.debug(f"Skipping {p} | {str(e)}")
+                    continue
+                else:
+                    raise e
 
         self.metadata_store.update(mstore)
         return self

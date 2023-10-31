@@ -3,9 +3,11 @@
 import re
 from abc import ABC, abstractmethod
 from functools import cache
-from typing import Callable, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type, TypeVar
 
 from pydantic import BaseModel
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class AbstractMetadataExtractor(ABC):
@@ -43,7 +45,7 @@ class AbstractMetadataExtractor(ABC):
         Returns:
             Return a pydantic schema object to map the metadata
         """
-        text = self._preprocess_text(text)
+        text = self.preprocessor(text)
         return self._extract(text) if text else None
 
     @cache
@@ -78,6 +80,51 @@ class MetadataValidator(ABC):
         Performs validation for the provided metadata.
         """
         return self.validate(*args, **kwargs)
+
+
+class MetadataAggregator(ABC):
+    def __init__(self, remove_nulls: bool = False, debug: bool = False) -> None:
+        self.debug = debug
+        self.remove_nulls = remove_nulls
+
+    @abstractmethod
+    def aggregate(self, extractions: List[Dict[str, Any]]) -> Type[BaseModel]:
+        raise NotImplementedError()
+
+    def __call__(self, *args, **kwargs) -> Type[BaseModel]:
+        """
+        Performs validation for the provided metadata.
+        """
+        return self.aggregate(*args, **kwargs)
+
+    def _remove_nulls(self, item: T) -> T:
+        """metadata extractions will often be missing values that the extractor couldn't locate
+        in the chunk. this purges all the keys with null values to decrease token usage"""
+
+        if isinstance(item, dict):
+            filtered_dict = {
+                k: self._remove_nulls(v)
+                for k, v in item.items()
+                if self._remove_nulls(v)
+            }
+            return filtered_dict if filtered_dict else None
+        elif isinstance(item, list):
+            filtered_list = [
+                self._remove_nulls(v) for v in item if self._remove_nulls(v)
+            ]
+            return filtered_list if filtered_list else None
+        elif isinstance(item, set):
+            filtered_set = {
+                self._remove_nulls(v) for v in item if self._remove_nulls(v)
+            }
+            return filtered_set if filtered_set else None
+        elif isinstance(item, tuple):
+            filtered_tuple = tuple(
+                self._remove_nulls(v) for v in item if self._remove_nulls(v)
+            )
+            return filtered_tuple if filtered_tuple else None
+        else:
+            return item
 
 
 def main():

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import multiprocessing
 import re
 from typing import TypeVar
 
@@ -12,7 +13,7 @@ T = TypeVar("T", bound=BaseModel)
 
 
 def is_lambda(obj) -> bool:
-    return callable(obj) and obj.__name__ == "<lambda>"
+    return hasattr(obj, "__name__") and callable(obj) and obj.__name__ == "<lambda>"
 
 
 class PydanticOutputParserWithoutValidation(PydanticOutputParser):
@@ -38,3 +39,7 @@ class PydanticOutputParserWithoutValidation(PydanticOutputParser):
             name = self.pydantic_object.__name__
             msg = f"Failed to parse {name} from completion {text}. Got: {e}"
             raise OutputParserException(msg, llm_output=text)
+
+
+def get_cpu_count() -> int:
+    return multiprocessing.cpu_count()
