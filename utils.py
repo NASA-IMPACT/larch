@@ -3,7 +3,8 @@
 import json
 import multiprocessing
 import re
-from typing import TypeVar
+from collections.abc import MutableMapping
+from typing import Tuple, TypeVar
 
 from langchain.output_parsers import PydanticOutputParser
 from langchain.pydantic_v1 import BaseModel, ValidationError
@@ -43,3 +44,17 @@ class PydanticOutputParserWithoutValidation(PydanticOutputParser):
 
 def get_cpu_count() -> int:
     return multiprocessing.cpu_count()
+
+
+def flatten_dict(dictionary: dict, parent_key=False, separator="."):
+    items = []
+    for key, value in dictionary.items():
+        new_key = str(parent_key) + separator + key if parent_key else key
+        if isinstance(value, MutableMapping):
+            items.extend(flatten_dict(value, new_key, separator).items())
+        elif isinstance(value, list):
+            for k, v in enumerate(value):
+                items.extend(flatten_dict({str(k): v}, new_key).items())
+        else:
+            items.append((new_key, value))
+    return dict(items)

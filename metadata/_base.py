@@ -3,7 +3,7 @@
 import re
 from abc import ABC, abstractmethod
 from functools import cache
-from typing import Any, Callable, Dict, List, Optional, Type, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union
 
 from pydantic import BaseModel
 
@@ -80,6 +80,36 @@ class MetadataValidator(ABC):
         Performs validation for the provided metadata.
         """
         return self.validate(*args, **kwargs)
+
+
+class MetadataEvaluator(ABC):
+    """
+    A component to evaluate extracted metadata with provided reference
+    """
+
+    def __init__(self, ignore_case: bool = True, debug: bool = False) -> None:
+        self.debug = debug
+        self.ignore_case = ignore_case
+
+    @abstractmethod
+    def evaluate(
+        self,
+        prediction: Union[Type[BaseModel], Dict],
+        reference: Union[Type[BaseModel], Dict],
+        **kwargs,
+    ) -> Any:
+        raise NotImplementedError()
+
+    def _get_dict(self, metadata: Any) -> dict:
+        if isinstance(metadata, BaseModel):
+            metadata = metadata.model_dump()
+        return metadata
+
+    def __call__(self, *args, **kwargs) -> Any:
+        """
+        Performs evaluation for provided prediction and reference.
+        """
+        return self.evaluate(*args, **kwargs)
 
 
 class MetadataAggregator(ABC):
