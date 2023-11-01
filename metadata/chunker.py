@@ -4,6 +4,7 @@ from langchain.text_splitter import TokenTextSplitter
 from loguru import logger
 from pydantic import BaseModel
 
+from ..utils import remove_nulls
 from ._base import MetadataAggregator
 from .extractors_openai import InstructorBasedOpenAIMetadataExtractor
 
@@ -53,7 +54,7 @@ class InstructorAggregator(MetadataAggregator):
 
         extraction_dicts = [e.model_dump() for e in extractions]
         if self.remove_nulls:
-            extraction_dicts = self._remove_nulls(extraction_dicts)
+            extraction_dicts = list(map(remove_nulls, extraction_dicts))
 
         if self.debug:
             logger.debug(f"Serialized chunks :: \n{extraction_dicts}")

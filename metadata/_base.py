@@ -91,11 +91,11 @@ class MetadataEvaluator(ABC):
 
     def __init__(
         self,
-        remove_empty_nodes: bool = True,
+        remove_nulls: bool = True,
         ignore_case: bool = True,
         debug: bool = False,
     ) -> None:
-        self.remove_empty_nodes = remove_empty_nodes
+        self.remove_nulls = remove_nulls
         self.ignore_case = ignore_case
         self.debug = debug
 
@@ -106,7 +106,7 @@ class MetadataEvaluator(ABC):
         **kwargs,
     ) -> Any:
         prediction = self._get_dict(prediction)
-        prediction = remove_nulls(prediction) if self.remove_empty_nodes else prediction
+        prediction = remove_nulls(prediction) if self.remove_nulls else prediction
         reference = self._get_dict(reference)
         return self._evaluate(prediction=prediction, reference=reference, **kwargs)
 
@@ -140,35 +140,6 @@ class MetadataAggregator(ABC):
         Performs validation for the provided metadata.
         """
         return self.aggregate(*args, **kwargs)
-
-    def _remove_nulls(self, item: T) -> T:
-        """metadata extractions will often be missing values that the extractor couldn't locate
-        in the chunk. this purges all the keys with null values to decrease token usage"""
-
-        if isinstance(item, dict):
-            filtered_dict = {
-                k: self._remove_nulls(v)
-                for k, v in item.items()
-                if self._remove_nulls(v)
-            }
-            return filtered_dict if filtered_dict else None
-        elif isinstance(item, list):
-            filtered_list = [
-                self._remove_nulls(v) for v in item if self._remove_nulls(v)
-            ]
-            return filtered_list if filtered_list else None
-        elif isinstance(item, set):
-            filtered_set = {
-                self._remove_nulls(v) for v in item if self._remove_nulls(v)
-            }
-            return filtered_set if filtered_set else None
-        elif isinstance(item, tuple):
-            filtered_tuple = tuple(
-                self._remove_nulls(v) for v in item if self._remove_nulls(v)
-            )
-            return filtered_tuple if filtered_tuple else None
-        else:
-            return item
 
 
 def main():
