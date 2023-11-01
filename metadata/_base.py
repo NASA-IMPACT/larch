@@ -7,6 +7,8 @@ from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union
 
 from pydantic import BaseModel
 
+from ..utils import remove_nulls
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -87,17 +89,29 @@ class MetadataEvaluator(ABC):
     A component to evaluate extracted metadata with provided reference
     """
 
-    def __init__(self, ignore_case: bool = True, debug: bool = False) -> None:
-        self.debug = debug
+    def __init__(
+        self,
+        remove_empty_nodes: bool = True,
+        ignore_case: bool = True,
+        debug: bool = False,
+    ) -> None:
+        self.remove_empty_nodes = remove_empty_nodes
         self.ignore_case = ignore_case
+        self.debug = debug
 
-    @abstractmethod
     def evaluate(
         self,
         prediction: Union[Type[BaseModel], Dict],
         reference: Union[Type[BaseModel], Dict],
         **kwargs,
     ) -> Any:
+        prediction = self._get_dict(prediction)
+        prediction = remove_nulls(prediction) if self.remove_empty_nodes else prediction
+        reference = self._get_dict(reference)
+        return self._evaluate(prediction=prediction, reference=reference, **kwargs)
+
+    @abstractmethod
+    def _evaluate(self, prediction: Dict, reference: Dict, **kwargs) -> Any:
         raise NotImplementedError()
 
     def _get_dict(self, metadata: Any) -> dict:

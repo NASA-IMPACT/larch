@@ -18,15 +18,12 @@ class JaccardEvaluator(MetadataEvaluator):
     prediction and reference w.r.t overall tokens (prediction+reference)
     """
 
-    def evaluate(
+    def _evaluate(
         self,
-        prediction: Union[Type[BaseModel], dict],
-        reference: Union[Type[BaseModel], dict],
+        prediction: dict,
+        reference: dict,
         **kwargs,
     ) -> float:
-        prediction = self._get_dict(prediction)
-        reference = self._get_dict(reference)
-
         prediction = " ".join(map(str, flatten_dict(prediction).values())).strip()
         prediction = prediction.lower() if self.ignore_case else prediction
 
@@ -51,14 +48,14 @@ class FlattenedExactMatch(MetadataEvaluator):
     to reference.
     """
 
-    def evaluate(
+    def _evaluate(
         self,
-        prediction: Union[Type[BaseModel], dict],
-        reference: Union[Type[BaseModel], dict],
+        prediction: dict,
+        reference: dict,
         **kwargs,
     ) -> float:
-        prediction = flatten_dict(self._get_dict(prediction))
-        reference = flatten_dict(self._get_dict(reference))
+        prediction = flatten_dict(prediction)
+        reference = flatten_dict(reference)
 
         key_prep = lambda x: re.sub(r"\.\d+\.", ".", x)
 

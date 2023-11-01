@@ -58,3 +58,34 @@ def flatten_dict(dictionary: dict, parent_key=False, separator="."):
         else:
             items.append((new_key, value))
     return dict(items)
+
+
+def remove_nulls(data: T, null_vals=[None, "N/A", "unknown"]) -> T:
+    """
+    Remove empty nodes from the input dictionary
+    """
+    null_strs = list(map(str, null_vals))
+    null_strs += list(map(str.lower, null_strs))
+    null_strs += list(map(str.upper, null_strs))
+    null_strs += list(map(str.capitalize, null_strs))
+    null_vals = list(set(null_vals + null_strs))
+
+    if isinstance(data, dict):
+        new_dict = {}
+        for key, value in data.items():
+            cleaned_value = remove_nulls(value, null_vals)
+            if cleaned_value not in null_vals and cleaned_value:
+                new_dict[key] = cleaned_value
+        return new_dict
+
+    elif isinstance(data, list):
+        new_list = []
+        for item in data:
+            cleaned_item = remove_nulls(item, null_vals)
+            if cleaned_item not in null_vals and cleaned_item:
+                new_list.append(cleaned_item)
+
+        return new_list
+
+    else:
+        return data
