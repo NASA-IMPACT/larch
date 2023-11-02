@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type, TypeVar
 
 from loguru import logger
 from pydantic import BaseModel
 
 from ._base import MetadataValidator
+
+T = TypeVar("T")
 
 
 class SimpleInTextMetadataValidator(MetadataValidator):
@@ -68,53 +70,45 @@ class SimpleInTextMetadataValidator(MetadataValidator):
         """
         dct = metadata.dict()
         try:
-            dct_validated = self.recursive_validate_dict(dct, text)
+            dct_validated = self._recursive_validate(dct, text)
         except:
             logger.warning("Validation failed! Returning original metadata...")
             dct_validated = dct
         return metadata.model_construct(**dct_validated)
 
-    def recursive_validate_dict(
+    def _recursive_validate(
         self,
-        dct: Dict[str, Any],
+        data: T,
         text,
         current_key: str = None,
-    ) -> dict:
+    ) -> T:
         keys = self.keys
         if self.debug:
-            logger.debug(f"Current key={current_key} | value = {dct}")
-        if isinstance(dct, dict):
-            validated_dct = {}
-            for key, value in dct.items():
-                current_key = key
-                validated_value = value
-                if isinstance(value, (dict, list)):
-                    validated_value = self.recursive_validate_dict(
-                        value,
-                        text,
-                        current_key,
-                    )
-                if isinstance(value, str) and current_key in keys:
-                    validated_value = (
-                        value
-                        if SimpleInTextMetadataValidator.is_in_text(value, text)
-                        else None
-                    )
-                validated_dct[
-                    key
-                ] = validated_value  # if current_key in keys else value
-            return validated_dct
-
-        elif isinstance(dct, list) and current_key in keys:
-            validated_list = [
-                item
-                for item in dct
-                if SimpleInTextMetadataValidator.is_in_text(item, text)
-            ]
-            return validated_list
-        elif isinstance(dct, list) and current_key not in keys:
-            return dct
-        return dct if SimpleInTextMetadataValidator.is_in_text(dct, text) else None
+            logger.debug(f"Current key={current_key} | value = {data}")
+        # check for dict
+        if isinstance(data, dict):
+            validated_dict = {}
+            for key, value in data.items():
+                validated_value = self._recursive_validate(value, text, key)
+                if validated_value:
+                    validated_dict[key] = validated_value
+            return validated_dict
+        # if list, recursively apply same thing to each item
+        elif isinstance(data, list):
+            res = map(
+                lambda item: self._recursive_validate(item, text, current_key),
+                data,
+            )
+            res = filter(None, res)
+            return list(res)
+        # final node is a text value
+        elif isinstance(data, (str, int, float)) and current_key in keys:
+            return (
+                data
+                if SimpleInTextMetadataValidator.is_in_text(str(data), text)
+                else None
+            )
+        return data
 
     @staticmethod
     def is_in_text(text1: str, text2: str, lowercase: bool = True) -> bool:
