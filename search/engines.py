@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import re
 from abc import ABC, abstractmethod
 from typing import Any, List, Optional, Type
 
@@ -9,13 +10,15 @@ from langchain.agents import create_sql_agent
 from langchain.agents.agent_toolkits import SQLDatabaseToolkit
 from langchain.agents.agent_types import AgentType
 from langchain.base_language import BaseLanguageModel
+from langchain.callbacks.manager import CallbackManagerForRetrieverRun
 from langchain.chains import create_sql_query_chain
 from langchain.chains.llm import LLMChain
 from langchain.chains.question_answering import load_qa_chain
 from langchain.chat_models import ChatOpenAI
 from langchain.llms import OpenAI
-from langchain.prompts import PromptTemplate
+from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from langchain.prompts.base import BasePromptTemplate
+from langchain.schema.retriever import BaseRetriever
 from langchain.utilities import SQLDatabase
 from loguru import logger
 from pynequa import QueryParams, Sinequa
@@ -23,7 +26,8 @@ from pynequa import QueryParams, Sinequa
 from ..indexing import DocumentIndexer
 from ..metadata import AbstractMetadataExtractor
 from ..prompts import QA_DOCUMENTS_PROMPT
-from ..structures import Document
+from ..structures import Document, LangchainDocument
+from ..utils import remove_nulls
 
 
 class AbstractSearchEngine(ABC):
@@ -174,8 +178,7 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
     Based on given query, it generates an appropriate SQL query internally and
     runs the query to generate response text. Use this whenever there's a
     complex query that SQL syntax can support such as grouping, ordering,
-    counting, etc. If this fails to answer the query, use
-    `MetadataBasedAugmentedSearchEngine` instead.
+    counting, etc.
     """
 
     def __init__(
@@ -215,7 +218,7 @@ class MetadataBasedAugmentedSearchEngine(AbstractSearchEngine):
         input_variables=["input", "table_info", "top_k"],
         output_parser=None,
         partial_variables={},
-        template='You are a SQLite expert. Given an input metadata json extracted from an input query, first create a syntactically correct SQLite query to run on the table below, then look at the results of the query and return the answer to the input question.\nUnless the user specifies in the question a specific number of examples to obtain, query for at most {top_k} results using the LIMIT clause as per SQLite. You can order the results to return the most informative data in the database.\nNever query for all columns from a table. You must query only the columns that are needed to answer the question. Wrap each column name in double quotes (") to denote them as delimited identifiers.\nPay attention to use only the column names you can see in the tables below. Be careful to not query for columns that do not exist. Also, pay attention to which column is in which table.\nUse LIKE clause in the SQL query for string matching.\nPay attention to use date(\'now\') function to get the current date, if the question involves "today".\n\nUse the following format:\n\nQuestion: metadata JSON here\nSQLQuery: Correctly extracted SQL Query to run\nSQLResult: Result of the SQLQuery\nAnswer: Final answer here\n\nOnly use the following tables:\n{table_info}\n\nQuestion: {input}',
+        template='You are an expert in SQL. Given an input metadata json extracted from an input query, first create a syntactically correct SQLite query to run on the table below, then look at the results of the query and return the answer to the input question.\nUnless the user specifies in the question a specific number of examples to obtain, query for at most {top_k} results using the LIMIT clause as per SQLite. You can order the results to return the most informative data in the database.\nNever query for all columns from a table. You must query only the columns that are needed to answer the question. Wrap each column name in double quotes (") to denote them as delimited identifiers.\nPay attention to use only the column names you can see in the tables below. Be careful to not query for columns that do not exist. Also, pay attention to which column is in which table.\nUse LIKE clause in the SQL query for string matching.\nPay attention to use date(\'now\') function to get the current date, if the question involves "today".\n\nUse the following format:\n\nQuestion: metadata JSON here\nSQLQuery: Correctly extracted SQL Query to run\nSQLResult: Result of the SQLQuery\nAnswer: Final answer here\n\nOnly use the following tables:\n{table_info}\n\nQuestion: {input}',
         template_format="f-string",
         validate_template=True,
     )
@@ -225,6 +228,7 @@ class MetadataBasedAugmentedSearchEngine(AbstractSearchEngine):
         metadata_extractor: Type[AbstractMetadataExtractor],
         db_uri: str,
         model: str = "gpt-3.5-turbo-0613",
+        tables: Optional[List[str]] = None,
         prompt_template: Optional[PromptTemplate] = None,
         bypass_metadata_extractor: bool = False,
         debug: bool = False,
@@ -240,22 +244,15 @@ class MetadataBasedAugmentedSearchEngine(AbstractSearchEngine):
             else None
         )
 
-        self.db = SQLDatabase.from_uri(db_uri, include_tables=["metadata"])
+        self.db = SQLDatabase.from_uri(db_uri, include_tables=tables)
         self.llm = ChatOpenAI(temperature=0.0, model=model)
         self.db_chain = create_sql_query_chain(self.llm, self.db, self.prompt)
-
-    def clean_metadata(self, metadata: dict) -> dict:
-        res = {}
-        for k, v in metadata.items():
-            if v:
-                res[k] = v
-        return res
 
     def query(self, query: str, top_k: int = 5) -> str:
         db_chain = create_sql_query_chain(self.llm, self.db, self.prompt, top_k)
         if not self.bypass_metadata_extractor:
             metadata = self.metadata_extractor(query)
-            metadata = self.clean_metadata(metadata.dict_flattened())
+            metadata = remove_nulls(metadata.model_dump())
             query = f"Query: {query}\nmetadata: {json.dumps(metadata)}"
         sql_query = db_chain.invoke(dict(question=query))
 
@@ -318,80 +315,86 @@ class EnsembleAugmentedSearchEngine(AbstractSearchEngine):
         return response.get("choices", [{}])[0].get("message", {}).get("content", "")
 
 
-class SinequaSearchEngine(AbstractSearchEngine):
+class MultiRetrieverSearchEngine(AbstractSearchEngine):
     """
-    This class uses Sinequa as search engine. Given a query and metadata
-    it will perform faceted searcha and provide a set of matches.
+    This aggregates answers from all the available sources
+    using multiple retriever model.
+    """
 
-    Args:
-        base_url (str): The base URL for the sinequa instance
-        auth_token (str): Authentication token for sinequa instance
-        app_name (str, optional): The name of the Sinequa application
-                                (default is "vanilla-search").
-        query_name (str, optional): The name of the query (default
-                                is "query").
-        debug (bool, optional): Flag indicating whether to enable debug mode (default is False).
-    """
+    _SYSTEM_PROMPT = (
+        "You are very accurate information retriever."
+        + " Use the information from the below two sources to answer any query."
+        + " Only answer based on the provided sources."
+        + " Try best to consolidate the answer that is accurate"
+        + " and coherent based on the answers from both the sources."
+        + " Don't give response that doesn't belong within the generated answers."
+        + " Be as concise as possible to give the final answer."
+    )
+
+    class RetrieverWrapper(BaseRetriever):
+        search_engine: AbstractSearchEngine
+
+        def _get_relevant_documents(
+            self,
+            query: str,
+            *,
+            run_manager: CallbackManagerForRetrieverRun,
+            **kwargs,
+        ) -> List[LangchainDocument]:
+            # Use your existing retriever to get the documents
+            result = self.search_engine(query, **kwargs)
+            return LangchainDocument(page_content=result)
 
     def __init__(
         self,
-        base_url: str,
-        auth_token: str,
-        app_name: str = "vanilla-search",
-        query_name: str = "query",
+        *engines: AbstractSearchEngine,
+        llm: Optional[BaseLanguageModel] = None,
+        system_prompt: str = _SYSTEM_PROMPT,
         debug: bool = False,
     ) -> None:
-        """
-        Initializes a new instance of SinequaSearchEngine class.
-        """
-        super().__init__(debug)
-        self.sinequa = Sinequa.from_config(
-            cfg={
-                "base_url": base_url,
-                "access_token": auth_token,
-                "app_name": app_name,
-                "query_name": query_name,
-            },
+        super().__init__(debug=debug)
+        self.engines = engines
+        self.llm = llm or ChatOpenAI(temperature=0.0, model="gpt-3.5-turbo")
+        self.retrievers = [
+            self.RetrieverWrapper(search_engine=engine) for engine in engines
+        ]
+
+        retriever_prompt = self._construct_system_prompt(*engines)
+        system_prompt = system_prompt or MultiRetrieverSearchEngine._SYSTEM_PROMPT
+        system_prompt = f"{system_prompt}\n{retriever_prompt}"
+        self.system_prompt = system_prompt
+        self.prompt = ChatPromptTemplate.from_messages(
+            [("system", self.system_prompt), ("human", "{question}")],
+        )
+        self.chain = self._build_chain(
+            *self.retrievers,
+            prompt=self.prompt,
+            llm=self.llm,
         )
 
+    @staticmethod
+    def _build_chain(*retrievers, prompt, llm):
+        retriever_chain = {
+            f"source{i}": (lambda x: x["question"]) | retriever
+            for i, retriever in enumerate(retrievers, start=1)
+        }
+        return (
+            {**retriever_chain, **{"question": lambda x: x["question"]}} | prompt | llm
+        )
+
+    def _construct_system_prompt(self, *engines: AbstractSearchEngine):
+        res = ""
+
+        for i, engine in enumerate(engines, start=1):
+            name = engine.__class__.__name__
+            res += f"Source {i}: {name}\n<source{i}>\n{{source{i}}}\n</source{i}>\n"
+        return res
+
     def query(self, query: str, **kwargs) -> str:
-        """ "
-        Executes a search query on the Sinequa platform
-
-        Args:
-            query (str): The search query.
-            **kwargs: Additional keyword arguments (e.g., page, page_size).
-
-        Returns:
-            str: The matching passages as a single string.
-        """
-        # build query params payload
-
+        result = self.chain.invoke(dict(question=query))
         if self.debug:
-            logger.debug(f"query: {query}")
-
-        query_params = QueryParams()
-        query_params.search_text = query
-        query_params.page = kwargs.get("page", 1)
-        query_params.page_size = kwargs.get("page_size", 10)
-
-        results = self.sinequa.search_query(query_params)
-
-        if "ErrorCode" in results:
-            error_message = results["ErrorMessage"]
-            logger.error(error_message)
-            raise Exception(f"Error: {error_message}")
-
-        # the answer we're looking for is inside
-        # topPassages -> passages -> [highlightedText]
-
-        top_passages = results["topPassages"]["passages"]
-
-        matching_passages = ""
-        for passages in top_passages:
-            matching_passages += passages["highlightedText"] + " "
-
-        return matching_passages
+            logger.debug(result)
+        return result.content
 
 
 def main():

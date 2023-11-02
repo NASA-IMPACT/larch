@@ -36,8 +36,8 @@ class CustomAgentSearchEngine(AbstractSearchEngine):
         Action Input: the input to the action
         Observation: The result of the action. You must follow the observation with either an action or final answer
         ... (this Thought/Action/Action Input/Observation can repeat N times)
-        Thought: Now that I have the query and there isn't metadata fields that can be extracted from the query, I choose SimpleRAG
-        Action: SimpleRAG
+        Thought: Now that I have the query and there isn't metadata fields that can be extracted from the query, I choose DocumentStoreRAG
+        Action: DocumentStoreRAG
         Action Input: the query string from the user
         Observation: the result of the action
         Final Answer: Correctly extracted answer from the search engine, which is human readable form that directly answers the query
@@ -47,32 +47,6 @@ class CustomAgentSearchEngine(AbstractSearchEngine):
         Query: {input}
         {agent_scratchpad}
     """.strip()
-
-    # _TEMPLATE = """
-    #     You are given a query. Choose the right tool to pass the query to get the right answer.
-    #     Each of the tools is the search engine to call based on provided context.
-    #     It could be performing Information Retrieval (IR) based search or metadata or SQL based searches.
-    #     If one of the tools doesn't provide any answer, skip that and use other tools.
-    #     Finally, if you have the answer, provide that answer.
-    #     You have access to the following tools:
-
-    #     {tools}
-
-    #     Use the following format:
-
-    #     Query: the input question you must answer
-    #     Thought: you should always think about what to do
-    #     Action: the action to take, should be one of [{tool_names}]
-    #     Action Input: the input to the action
-    #     Observation: The result of the action.
-    #     ... (this Thought/Action/Action Input/Observation can repeat N times. Once you have the answer, provide the Final Answer)
-    #     Final Answer: the final answer for the query based on the previous observations
-
-    #     Begin Loop:
-
-    #     Query: {input}
-    #     {agent_scratchpad}
-    # """.strip()
 
     class _CustomOutputParser(AgentOutputParser):
         def parse(self, llm_output: str) -> Union[AgentAction, AgentFinish]:
