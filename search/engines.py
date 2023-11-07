@@ -26,7 +26,7 @@ from pynequa import QueryParams, Sinequa
 from ..indexing import DocumentIndexer
 from ..metadata import AbstractMetadataExtractor
 from ..prompts import QA_DOCUMENTS_PROMPT
-from ..structures import Document, LangchainDocument
+from ..structures import Document, LangchainDocument, Response
 from ..utils import remove_nulls
 
 
@@ -41,14 +41,18 @@ class AbstractSearchEngine(ABC):
         self.debug = debug
 
     @abstractmethod
-    def query(self, query: str, **kwargs) -> str:
+    def query(self, query: str, **kwargs) -> Response:
         raise NotImplementedError()
 
-    def search(self, query: str, **kwargs) -> str:
+    def search(self, query: str, **kwargs) -> Response:
         return self.query(query, **kwargs)
 
-    def __call__(self, *args, **kwargs) -> Any:
+    def __call__(self, *args, **kwargs) -> Response:
         return self.query(*args, **kwargs)
+
+    @property
+    def __classname__(self) -> str:
+        return self.__class__.__name__
 
 
 class SimpleRAG(AbstractSearchEngine):
@@ -67,14 +71,14 @@ class SimpleRAG(AbstractSearchEngine):
         self._cache = cache
         self.cache_store = {}
 
-    def query(self, query: str, **kwargs) -> str:
+    def query(self, query: str, **kwargs) -> Response:
         query_hash = hash(query)
         result = (
             self.cache_store.get(query_hash)
             or self.document_indexer.query(query, **kwargs).strip()
         )
         self.cache_store[query_hash] = result
-        return result
+        return Response(text=result, source=self.__classname__)
 
 
 class InMemoryDocumentQAEngine(AbstractSearchEngine):
@@ -114,16 +118,17 @@ class InMemoryDocumentQAEngine(AbstractSearchEngine):
             verbose=self.debug,
         )
 
-    def query(self, query: str, **kwargs) -> str:
+    def query(self, query: str, **kwargs) -> Response:
         documents = self.documents or kwargs.get("documents", [])
         if not documents:
             logger.warning("Empty document list!")
-            return self._DEFAULT_NO_RESPONSE
+            return Response(text=self._DEFAULT_NO_RESPONSE, source=self.__classname__)
         docs = list(map(lambda x: x.as_langchain_document(), documents))
-        return self.chain(
+        res = self.chain(
             dict(input_documents=docs, question=query),
             return_only_outputs=True,
         ).get("output_text", "")
+        return Response(text=res, evidences=documents, source=self.__classname__)
 
 
 class DocumentStoreRAG(AbstractSearchEngine):
@@ -165,11 +170,14 @@ class DocumentStoreRAG(AbstractSearchEngine):
     def prompt(self):
         return self.qa_engine.prompt
 
-    def query(self, query: str, top_k: int = 5, **kwargs) -> str:
+    def query(self, query: str, top_k: int = 5, **kwargs) -> Response:
         documents = self.document_store.query_top_k(query=query, top_k=top_k, **kwargs)
+        result = self.qa_engine(query=query, documents=documents, **kwargs)
+        result.source = self.__classname__
         if self.debug:
             logger.debug(f"top_k={top_k} documents :: {documents}")
-        return self.qa_engine(query=query, documents=documents, **kwargs)
+            logger.debug(f"Result={result}")
+        return result
 
 
 class SQLAgentSearchEngine(AbstractSearchEngine):
@@ -199,8 +207,11 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
             agent_type=AgentType.OPENAI_FUNCTIONS,
         )
 
-    def query(self, query: str, **kwargs) -> str:
-        return self.agent_executor.run(query)
+    def query(self, query: str, **kwargs) -> Response:
+        result = self.agent_executor.run(query)
+        if self.debug:
+            logger.debug(f"Result={result}")
+        return Response(text=result, source=self.__classname__)
 
 
 class MetadataBasedAugmentedSearchEngine(AbstractSearchEngine):
@@ -248,8 +259,9 @@ class MetadataBasedAugmentedSearchEngine(AbstractSearchEngine):
         self.llm = ChatOpenAI(temperature=0.0, model=model)
         self.db_chain = create_sql_query_chain(self.llm, self.db, self.prompt)
 
-    def query(self, query: str, top_k: int = 5) -> str:
+    def query(self, query: str, top_k: int = 5, **kwargs) -> Response:
         db_chain = create_sql_query_chain(self.llm, self.db, self.prompt, top_k)
+        metadata = {}
         if not self.bypass_metadata_extractor:
             metadata = self.metadata_extractor(query)
             metadata = remove_nulls(metadata.model_dump())
@@ -260,7 +272,17 @@ class MetadataBasedAugmentedSearchEngine(AbstractSearchEngine):
             logger.debug(f"{query}")
             logger.debug(f"SQL Query: {sql_query}")
 
-        return self.db.run(sql_query)
+        res = ""
+        try:
+            res = self.db.run(sql_query)
+        except:
+            logger.warning(f"Error in {self.__class__.__name__}")
+        return Response(
+            text=res,
+            source=self.__classname__,
+            extras=dict(metadata=metadata),
+            evidences=[Document(text=sql_query, source="create_sql_query_chain")],
+        )
 
 
 class EnsembleAugmentedSearchEngine(AbstractSearchEngine):
@@ -292,7 +314,7 @@ class EnsembleAugmentedSearchEngine(AbstractSearchEngine):
 
         self.model = model or "gpt-3.5-turbo"
 
-    def query(self, query: str, **kwargs) -> str:
+    def query(self, query: str, **kwargs) -> Response:
         results = map(lambda e: e(query, **kwargs), self.engines)
         results = list(results)
 
@@ -312,7 +334,10 @@ class EnsembleAugmentedSearchEngine(AbstractSearchEngine):
         if self.debug:
             logger.debug(f"OpenAI response :: {response}")
 
-        return response.get("choices", [{}])[0].get("message", {}).get("content", "")
+        response = (
+            response.get("choices", [{}])[0].get("message", {}).get("content", "")
+        )
+        return Response(text=response, source=self.__classname__, evidences=results)
 
 
 class MultiRetrieverSearchEngine(AbstractSearchEngine):
@@ -333,6 +358,7 @@ class MultiRetrieverSearchEngine(AbstractSearchEngine):
 
     class RetrieverWrapper(BaseRetriever):
         search_engine: AbstractSearchEngine
+        response: Optional[Response] = None
 
         def _get_relevant_documents(
             self,
@@ -341,9 +367,8 @@ class MultiRetrieverSearchEngine(AbstractSearchEngine):
             run_manager: CallbackManagerForRetrieverRun,
             **kwargs,
         ) -> List[LangchainDocument]:
-            # Use your existing retriever to get the documents
-            result = self.search_engine(query, **kwargs)
-            return LangchainDocument(page_content=result)
+            self.response = self.search_engine(query, **kwargs)
+            return self.response.as_langchain_document()
 
     def __init__(
         self,
@@ -355,10 +380,13 @@ class MultiRetrieverSearchEngine(AbstractSearchEngine):
         super().__init__(debug=debug)
         self.engines = engines
         self.llm = llm or ChatOpenAI(temperature=0.0, model="gpt-3.5-turbo")
-        self.retrievers = [
-            self.RetrieverWrapper(search_engine=engine) for engine in engines
-        ]
 
+        self._source_mapping = {
+            f"Source {i}": engine.__classname__
+            for i, engine in enumerate(self.engines, start=1)
+        }
+
+        # TODO: Functionalize
         retriever_prompt = self._construct_system_prompt(*engines)
         system_prompt = system_prompt or MultiRetrieverSearchEngine._SYSTEM_PROMPT
         system_prompt = f"{system_prompt}\n{retriever_prompt}"
@@ -366,11 +394,32 @@ class MultiRetrieverSearchEngine(AbstractSearchEngine):
         self.prompt = ChatPromptTemplate.from_messages(
             [("system", self.system_prompt), ("human", "{question}")],
         )
-        self.chain = self._build_chain(
-            *self.retrievers,
-            prompt=self.prompt,
-            llm=self.llm,
+
+    @staticmethod
+    def _get_retrievers(*engines: AbstractSearchEngine) -> List[RetrieverWrapper]:
+        return list(
+            map(
+                lambda engine: MultiRetrieverSearchEngine.RetrieverWrapper(
+                    search_engine=engine,
+                ),
+                engines,
+            ),
         )
+
+    def _construct_system_prompt(self, *engines: AbstractSearchEngine):
+        res = ""
+
+        for i, engine in enumerate(engines, start=1):
+            name = self._source_mapping[f"Source {i}"]
+            res += f"Source {i}: {name}\n<source{i}>\n{{source{i}}}\n</source{i}>\n"
+        return res
+
+    def _postprocess(self, text: str) -> str:
+        def _replace_source(match):
+            key = match.group(1)
+            return match.group(0).replace(key, self._source_mapping.get(key, key))
+
+        return re.sub(r"\s+(Source \d)", _replace_source, text).strip()
 
     @staticmethod
     def _build_chain(*retrievers, prompt, llm):
@@ -382,19 +431,22 @@ class MultiRetrieverSearchEngine(AbstractSearchEngine):
             {**retriever_chain, **{"question": lambda x: x["question"]}} | prompt | llm
         )
 
-    def _construct_system_prompt(self, *engines: AbstractSearchEngine):
-        res = ""
+    def query(self, query: str, **kwargs) -> Response:
+        # retrievers are made stateful to cache responses
+        # So, need to build at runtime
+        retrievers = self._get_retrievers(*self.engines)
 
-        for i, engine in enumerate(engines, start=1):
-            name = engine.__class__.__name__
-            res += f"Source {i}: {name}\n<source{i}>\n{{source{i}}}\n</source{i}>\n"
-        return res
+        chain = self._build_chain(*retrievers, prompt=self.prompt, llm=self.llm)
 
-    def query(self, query: str, **kwargs) -> str:
-        result = self.chain.invoke(dict(question=query))
+        result = chain.invoke(dict(question=query))
         if self.debug:
             logger.debug(result)
-        return result.content
+
+        return Response(
+            text=self._postprocess(result.content),
+            source=self.__classname__,
+            evidences=list(map(lambda r: r.response, retrievers)),
+        )
 
 
 def main():

@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from copy import copy, deepcopy
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from copy import deepcopy
+from typing import Any, Dict, List, Optional, Union
 
 from langchain.schema.document import Document as LangchainDocument
+from pydantic import BaseModel
 
 
-@dataclass
-class Document:
+class Document(BaseModel):
     text: str
     page: Optional[int] = None
     embeddings: Optional[List[float]] = None
@@ -31,6 +30,18 @@ class Document:
         extras["source"] = self.source
         extras["embeddings"] = self.embeddings
         return LangchainDocument(page_content=self.text, metadata=extras)
+
+    def __str__(self) -> str:
+        return str(self.text)
+
+
+class Response(Document):
+    evidences: Optional[List[Document]] = None
+
+    def as_langchain_document(self) -> LangchainDocument:
+        document = super().as_langchain_document()
+        document.metadata["evidences"] = self.evidences
+        return document
 
 
 def main():

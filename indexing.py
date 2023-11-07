@@ -27,7 +27,7 @@ from .metadata import AbstractMetadataExtractor, InstructorBasedOpenAIMetadataEx
 from .paperqa_patched.docs import Docs
 from .paperqa_patched.readers import read_doc_patched
 from .structures import Document
-from .utils import is_lambda
+from .utils import is_lambda, remove_duplicate_documents
 
 
 class DocumentIndexer(ABC):
@@ -465,6 +465,8 @@ class SinequaDocumentIndexer(DocumentIndexer):
         """
         This method parses query results from sinequa and returns
         then in a document format as a list.
+
+        It will remove duplicate results while returning the document list.
         """
 
         if "ErrorCode" in results:
@@ -489,7 +491,8 @@ class SinequaDocumentIndexer(DocumentIndexer):
                     },
                 ),
             )
-        return documents
+
+        return remove_duplicate_documents(documents)
 
     def _parse_sql_results(self, rows: List) -> List[Document]:
         """ "
@@ -520,6 +523,16 @@ class SinequaDocumentIndexer(DocumentIndexer):
     def query(self, *args, **kwargs):
         raise NotImplementedError
 
+    def _query_vectorstore(
+        self,
+        params: QueryParams,
+        **kwargs,
+    ) -> List[Document]:
+
+        # search sinequa
+        results = self.sinequa.search_query(params)
+        return self._parse_query_results(results)
+
     def query_vectorstore(
         self,
         query: str,
@@ -542,11 +555,26 @@ class SinequaDocumentIndexer(DocumentIndexer):
         params = QueryParams()
         params.search_text = query
         params.page = kwargs.get("page", 1)
-        params.page_size = top_k
+        params.page_size = top_k * 2
+        iterative_call = kwargs.get("iterative_call", False)
 
-        # search sinequa
-        results = self.sinequa.search_query(params)
-        return self._parse_query_results(results)
+        # search for documents
+        documents = self._query_vectorstore(params)
+
+        # if iterative_call is True
+        len_documents = len(documents)
+        if len_documents < top_k and iterative_call:
+            while len_documents < top_k:
+                params.page += 1
+
+                parsed_documents = self._query_vectorstore(params)
+                if len(parsed_documents) == 0:
+                    break
+
+                documents.extend(parsed_documents)
+                len_documents = len(documents)
+
+        return documents[:top_k]
 
     def query_with_sql(
         self,

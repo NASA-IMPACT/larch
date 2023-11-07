@@ -4,11 +4,13 @@ import json
 import multiprocessing
 import re
 from collections.abc import MutableMapping
-from typing import Tuple, TypeVar
+from typing import List, TypeVar
 
 from langchain.output_parsers import PydanticOutputParser
 from langchain.pydantic_v1 import BaseModel, ValidationError
 from langchain.schema import OutputParserException
+
+from .structures import Document
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -89,3 +91,18 @@ def remove_nulls(data: T, null_vals=[None, "N/A", "unknown"]) -> T:
 
     else:
         return data
+
+
+def remove_duplicate_documents(documents: List[Document]) -> List[Document]:
+    """
+    remove_duplicate_documents checks for duplicate texts in documents
+    and returns a list of unique documents.
+    """
+    _checks = set()
+    unique_documents = []
+    for document in documents:
+        text = re.sub(r"\s+", "", document.text)
+        if text not in _checks:
+            unique_documents.append(document)
+            _checks.add(text)
+    return unique_documents
