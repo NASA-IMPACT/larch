@@ -327,13 +327,17 @@ class DocumentMetadataIndexer(DocumentIndexer):
             )
         )
         self.metadata_store = {}
+        self.errors = set()
         self.skip_errors = skip_errors
 
     @property
     def schema(self) -> Type[BaseModel]:
         return self.metadata_extractor.schema
 
-    def index_documents(self, paths: List[str]) -> Dict[str, BaseModel]:
+    def index_documents(self, paths: List[str], **kwargs) -> Dict[str, BaseModel]:
+        save_path = kwargs.get("json_path", None)
+        if self.debug:
+            logger.debug(f"save_path = {save_path}")
         mstore = {}
         for p in tqdm(paths):
             if p in self.metadata_store:
@@ -360,10 +364,14 @@ class DocumentMetadataIndexer(DocumentIndexer):
                 mstore[p] = self.metadata_extractor(text)
             except Exception as e:
                 if self.skip_errors:
+                    self.errors.add(p)
                     logger.debug(f"Skipping {p} | {str(e)}")
                     continue
                 else:
                     raise e
+            self.metadata_store.update(mstore)
+            if save_path is not None:
+                self.save_index(save_path)
 
         self.metadata_store.update(mstore)
         return self
