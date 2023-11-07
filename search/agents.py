@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import re
-from typing import List, Union
+from typing import List, Tuple, Union
 
 from langchain import LLMChain
 from langchain.agents import (
@@ -14,6 +14,7 @@ from langchain.chat_models import ChatOpenAI
 from langchain.prompts import BaseChatPromptTemplate
 from langchain.schema import AgentAction, AgentFinish, HumanMessage
 
+from ..structures import Response
 from .engines import AbstractSearchEngine
 
 
@@ -128,7 +129,7 @@ class CustomAgentSearchEngine(AbstractSearchEngine):
         return tools
 
     @property
-    def agent_executor(self):
+    def agent_executor(self) -> Response:
         agent = LLMSingleActionAgent(
             llm_chain=self.llm_chain,
             output_parser=self._CustomOutputParser(),
@@ -139,10 +140,33 @@ class CustomAgentSearchEngine(AbstractSearchEngine):
             agent=agent,
             tools=self.tools,
             verbose=self.debug,
+            return_intermediate_steps=True,
         )
 
-    def query(self, query: str):
-        return self.agent_executor.run(query)
+    def query(self, query: str, **kwargs) -> Response:
+        res = self.agent_executor(query)
+        return Response(
+            text=res.get("output", ""),
+            source=self.__classname__,
+            evidences=self._intermediate_steps_to_evidences(
+                res.get("intermediate_steps", []),
+            ),
+            # extras=dict(intermediate_steps=res.get("intermediate_steps", [])),
+        )
+
+    @staticmethod
+    def _intermediate_steps_to_evidences(
+        steps: List[Tuple[AgentAction, Response]],
+    ) -> List[Response]:
+        res = []
+        # each step has a tuple of (<AgentAction>, <Response>)
+        for step in steps:
+            evidence = step[1]
+            extras = evidence.extras or {}
+            extras["agent_action"] = step[0]
+            evidence.extras = extras
+            res.append(evidence)
+        return res
 
 
 def main():
