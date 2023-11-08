@@ -24,11 +24,13 @@ class Document(BaseModel):
         doc.extras = metadata
         return doc
 
-    def as_langchain_document(self) -> LangchainDocument:
-        extras = (self.extras or {}).copy()
-        extras["page"] = self.page
-        extras["source"] = self.source
-        extras["embeddings"] = self.embeddings
+    def as_langchain_document(self, ignore_extras: bool = False) -> LangchainDocument:
+        extras = {}
+        if not ignore_extras:
+            extras = (self.extras or {}).copy()
+            extras["page"] = self.page
+            extras["source"] = self.source
+            extras["embeddings"] = self.embeddings
         return LangchainDocument(page_content=self.text, metadata=extras)
 
     def __str__(self) -> str:
@@ -38,8 +40,8 @@ class Document(BaseModel):
 class Response(Document):
     evidences: Optional[List[Document]] = None
 
-    def as_langchain_document(self) -> LangchainDocument:
-        document = super().as_langchain_document()
+    def as_langchain_document(self, ignore_extras: bool = False) -> LangchainDocument:
+        document = super().as_langchain_document(ignore_extras=ignore_extras)
         document.metadata["evidences"] = self.evidences
         return document
 

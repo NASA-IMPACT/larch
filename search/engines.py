@@ -368,7 +368,8 @@ class MultiRetrieverSearchEngine(AbstractSearchEngine):
             **kwargs,
         ) -> List[LangchainDocument]:
             self.response = self.search_engine(query, **kwargs)
-            return self.response.as_langchain_document()
+            # return LangchainDocument(page_content=self.response.text)
+            return self.response.as_langchain_document(ignore_extras=True)
 
     def __init__(
         self,

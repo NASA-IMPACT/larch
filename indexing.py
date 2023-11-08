@@ -26,6 +26,7 @@ from tqdm import tqdm
 from .metadata import AbstractMetadataExtractor, InstructorBasedOpenAIMetadataExtractor
 from .paperqa_patched.docs import Docs
 from .paperqa_patched.readers import read_doc_patched
+from .processors import TextProcessor
 from .structures import Document
 from .utils import is_lambda, remove_duplicate_documents
 
@@ -38,7 +39,7 @@ class DocumentIndexer(ABC):
     def __init__(
         self,
         docs: Optional[List[str]] = None,
-        text_preprocessor: Optional[Callable] = None,
+        text_preprocessor: Optional[TextProcessor] = None,
         debug: bool = False,
     ) -> None:
         if is_lambda(text_preprocessor):
@@ -122,6 +123,7 @@ class PaperQADocumentIndexer(DocumentIndexer):
         )
 
     def index_documents(self, paths: List[str], **kwargs) -> PaperQADocumentIndexer:
+        save_path = kwargs.get("save_path", None)
         _texts_len_original = len(self.texts)
         _docs = []
         for path in tqdm(paths):
@@ -131,6 +133,8 @@ class PaperQADocumentIndexer(DocumentIndexer):
                 logger.debug(f"Creating index for src={path}")
             self.doc_store.add(path)
             _docs.append(path)
+            if save_path is not None:
+                self.save_index(save_path)
         self.docs.extend(_docs)
 
         if self.debug:
@@ -167,7 +171,8 @@ class PaperQADocumentIndexer(DocumentIndexer):
         return docs
 
     def query(self, query: str, **kwargs) -> str:
-        query = query.strip()
+        if self.text_preprocessor is not None:
+            query = self.text_preprocessor(query).strip()
         return self.doc_store.query(query).answer if query else ""
 
     @property
@@ -335,7 +340,7 @@ class DocumentMetadataIndexer(DocumentIndexer):
         return self.metadata_extractor.schema
 
     def index_documents(self, paths: List[str], **kwargs) -> Dict[str, BaseModel]:
-        save_path = kwargs.get("json_path", None)
+        save_path = kwargs.get("save_path", None)
         if self.debug:
             logger.debug(f"save_path = {save_path}")
         mstore = {}
