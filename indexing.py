@@ -170,6 +170,9 @@ class PaperQADocumentIndexer(DocumentIndexer):
         vecstore = self.doc_store.doc_index or self.doc_store.texts_index
         if vecstore is not None:
             docs = vecstore.similarity_search(query, k=top_k)
+            for doc in docs:
+                if self.text_preprocessor is not None:
+                    doc.page_content = self.text_preprocessor(doc.page_content)
             docs = list(map(lambda d: Document.from_langchain_document(d), docs))
         return docs
 

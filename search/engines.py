@@ -173,7 +173,7 @@ class DocumentStoreRAG(AbstractSearchEngine):
     def query(self, query: str, top_k: int = 5, **kwargs) -> Response:
         documents = self.document_store.query_top_k(query=query, top_k=top_k, **kwargs)
         result = self.qa_engine(query=query, documents=documents, **kwargs)
-        result.source = self.__classname__
+        result.source = f"{self.__classname__}.{self.document_store.__class__.__name__}"
         if self.debug:
             logger.debug(f"top_k={top_k} documents :: {documents}")
             logger.debug(f"Result={result}")
@@ -207,7 +207,12 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
             agent_type=AgentType.OPENAI_FUNCTIONS,
         )
 
+    @staticmethod
+    def augment_query(query: str) -> str:
+        return query + "Use ilike with substring match"
+
     def query(self, query: str, **kwargs) -> Response:
+        query = SQLAgentSearchEngine.augment_query(query)
         result = self.agent_executor.run(query)
         if self.debug:
             logger.debug(f"Result={result}")
