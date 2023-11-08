@@ -134,7 +134,10 @@ class PaperQADocumentIndexer(DocumentIndexer):
             self.doc_store.add(path)
             _docs.append(path)
             if save_path is not None:
+                # hack
+                self.doc_store.text_preprocessor = None
                 self.save_index(save_path)
+                self.doc_store.text_preprocessor = self.text_preprocessor
         self.docs.extend(_docs)
 
         if self.debug:
