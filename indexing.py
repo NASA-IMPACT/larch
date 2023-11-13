@@ -15,6 +15,7 @@ from langchain.chat_models import ChatOpenAI
 from langchain.document_loaders import PyPDFLoader
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.schema.embeddings import Embeddings
+from langchain.schema.retriever import BaseRetriever
 from langchain.text_splitter import TextSplitter
 from langchain.vectorstores import FAISS, VectorStore
 from loguru import logger
@@ -27,7 +28,7 @@ from .metadata import AbstractMetadataExtractor, InstructorBasedOpenAIMetadataEx
 from .paperqa_patched.docs import Docs
 from .paperqa_patched.readers import read_doc_patched
 from .processors import TextProcessor
-from .structures import Document
+from .structures import Document, Response
 from .utils import is_lambda, remove_duplicate_documents
 
 
@@ -89,8 +90,14 @@ class DocumentIndexer(ABC):
         return self.query_vectorstore(query, top_k, **kwargs)
 
     @abstractmethod
-    def query(self, query: str, **kwargs) -> str:
+    def query(self, query: str, **kwargs) -> Response:
         raise NotImplementedError()
+
+    def as_langchain_retriever(self) -> Type[BaseRetriever]:
+        # to avoid circular import
+        from .search.chains import DocumentIndexerAsRetriever
+
+        return DocumentIndexerAsRetriever(document_indexer=self)
 
 
 class PaperQADocumentIndexer(DocumentIndexer):
@@ -132,23 +139,25 @@ class PaperQADocumentIndexer(DocumentIndexer):
             if self.debug:
                 logger.debug(f"Creating index for src={path}")
             self.doc_store.add(path)
-            _docs.append(path)
+            self.docs.append(path)
             if save_path is not None:
                 # hack
                 self.doc_store.text_preprocessor = None
                 self.save_index(save_path)
                 self.doc_store.text_preprocessor = self.text_preprocessor
-        self.docs.extend(_docs)
 
+        self.doc_store._build_texts_index()
         if self.debug:
             _n_added = len(self.texts) - _texts_len_original
-            logger.debug(f"Total of {len(_docs)} docs and {_n_added} pages indexed.")
+            logger.debug(
+                f"Total of {len(self.docs)} docs and {_n_added} pages indexed.",
+            )
 
         return self
 
     def save_index(self, path: str) -> PaperQADocumentIndexer:
         if not self.doc_store:
-            return
+            return self
         dump_val = dict(docs=self.docs, doc_store=self.doc_store)
         logger.info(f"Saving document index to {path}")
         with open(path, "wb") as f:
@@ -167,19 +176,30 @@ class PaperQADocumentIndexer(DocumentIndexer):
         """
 
         docs = []
-        vecstore = self.doc_store.doc_index or self.doc_store.texts_index
+        vecstore = self.doc_store.texts_index
         if vecstore is not None:
             docs = vecstore.similarity_search(query, k=top_k)
             for doc in docs:
                 if self.text_preprocessor is not None:
                     doc.page_content = self.text_preprocessor(doc.page_content)
             docs = list(map(lambda d: Document.from_langchain_document(d), docs))
+
+        # update source
+        for doc in docs:
+            doc.source = doc.extras.get("doc", {}).get("citation", None)
         return docs
 
-    def query(self, query: str, **kwargs) -> str:
+    def query(self, query: str, top_k: int = 10, **kwargs) -> Response:
         if self.text_preprocessor is not None:
             query = self.text_preprocessor(query).strip()
-        return self.doc_store.query(query).answer if query else ""
+        pqa_res = self.doc_store.query(query, k=top_k, max_sources=top_k, **kwargs)
+        return Response(
+            text=pqa_res.answer,
+            evidences=[
+                Document(text=context.text.text, source=context.text.doc.citation)
+                for context in pqa_res.contexts
+            ],
+        )
 
     @property
     def texts(self) -> List[Text]:
@@ -219,10 +239,14 @@ class LangchainDocumentIndexer(DocumentIndexer):
         _paths = filter(None, _paths)
         return list(set(_paths))
 
-    def qa_chain(self, k: int = 15) -> Type[Chain]:
+    def qa_chain(self, k: int = 15, **kwargs) -> Type[Chain]:
         return RetrievalQA(
-            combine_documents_chain=load_qa_chain(self.llm, chain_type="stuff"),
+            combine_documents_chain=load_qa_chain(
+                self.llm,
+                chain_type=kwargs.get("chain_type", "stuff"),
+            ),
             retriever=self.vector_store.as_retriever(k=k),
+            return_source_documents=True,
         )
 
     def doc_store(self):
@@ -248,20 +272,22 @@ class LangchainDocumentIndexer(DocumentIndexer):
         return docs
 
     def index_documents(self, paths: List[str], **kwargs) -> LangchainDocumentIndexer:
+        store_dir = kwargs.get("store_dir")
+        index_name = kwargs.get("index_name")
         docs = self._get_documents(paths)
-        if self.debug:
-            logger.debug("Indexing...")
         if len(docs) < 1:
             logger.warning(
-                f"Skipping indexing and returning existing vector store. Either empty docs or no new docs found!",
+                "Skipping indexing. Either empty docs or no new docs found!",
             )
-            return self.vector_store
+            return self
         if self.vector_store is None:
             self.vector_store = FAISS.from_documents(docs, self.embeddings)
         else:
             self.vector_store.add_documents(docs)
         if self.debug:
             logger.debug(f"Indexed {len(docs)} documents from {len(paths)} files.")
+        if store_dir and index_name:
+            self.save_index(store_dir=store_dir, index_name=index_name)
         return self
 
     def query_vectorstore(
@@ -270,25 +296,31 @@ class LangchainDocumentIndexer(DocumentIndexer):
         top_k=15,
         **kwargs,
     ) -> List[Document]:
+        if self.vector_store is None:
+            logger.warning("vector_store not initialized!")
+            return []
         lang_docs = self.vector_store.similarity_search(query, k=top_k)
-        return list(
-            map(
-                lambda d: Document.from_langchain_document(d),
-                lang_docs,
-            ),
-        )
+        return list(map(Document.from_langchain_document, lang_docs))
 
-    def query(self, query: str, top_k=15, **kwargs) -> str:
+    def query(self, query: str, top_k=5, **kwargs) -> Response:
         query = query.strip()
         if not query:
-            return ""
+            return Response(text="")
         inp = dict(query=query, question=query)
         if self.debug:
             logger.debug(f"Using k={top_k}")
-        result = self.qa_chain(k=top_k)(inp)
+        result = self.qa_chain(k=top_k, **kwargs)(inp)
         if self.debug:
             logger.debug(result)
-        return result.get("result", "").strip()
+        return Response(
+            text=result.get("result", "").strip(),
+            evidences=list(
+                map(
+                    Response.from_langchain_document,
+                    result.get("source_documents", []),
+                ),
+            ),
+        )
 
     def save_index(
         self,

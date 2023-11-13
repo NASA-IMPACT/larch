@@ -3,7 +3,7 @@
 import json
 import re
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional, Type
+from typing import List, Optional, Type
 
 import openai
 from langchain.agents import create_sql_agent
@@ -21,7 +21,6 @@ from langchain.prompts.base import BasePromptTemplate
 from langchain.schema.retriever import BaseRetriever
 from langchain.utilities import SQLDatabase
 from loguru import logger
-from pynequa import QueryParams, Sinequa
 
 from ..indexing import DocumentIndexer
 from ..metadata import AbstractMetadataExtractor
@@ -71,14 +70,18 @@ class SimpleRAG(AbstractSearchEngine):
         self._cache = cache
         self.cache_store = {}
 
-    def query(self, query: str, **kwargs) -> Response:
+    def query(self, query: str, top_k: int = 5, **kwargs) -> Response:
         query_hash = hash(query)
-        result = (
-            self.cache_store.get(query_hash)
-            or self.document_indexer.query(query, **kwargs).strip()
+        result = self.cache_store.get(query_hash) or self.document_indexer.query(
+            query,
+            top_k=top_k,
+            **kwargs,
+        )
+        result.source = (
+            f"{self.__classname__}.{self.document_indexer.__class__.__name__}"
         )
         self.cache_store[query_hash] = result
-        return Response(text=result, source=self.__classname__)
+        return result
 
 
 class InMemoryDocumentQAEngine(AbstractSearchEngine):

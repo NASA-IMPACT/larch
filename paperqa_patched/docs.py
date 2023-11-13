@@ -217,6 +217,7 @@ class Docs(BaseModel, arbitrary_types_allowed=True, smart_union=True):
             if len(texts) == 0:
                 raise ValueError(f"Could not read document {path}. Is it empty?")
             citation = cite_chain.run(texts[0].text)
+            citation = f"{citation}[{os.path.basename(path)}]"
             if len(citation) < 3 or "Unknown" in citation or "insufficient" in citation:
                 citation = f"Unknown, {os.path.basename(path)}, {datetime.now().year}"
 
