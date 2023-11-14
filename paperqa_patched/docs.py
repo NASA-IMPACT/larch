@@ -17,9 +17,9 @@ from langchain.schema.embeddings import Embeddings
 from langchain.vectorstores import FAISS, VectorStore
 
 try:
-    from pydantic.v1 import BaseModel, Field, validator
+    from pydantic.v1 import BaseModel, validator
 except ImportError:
-    from pydantic import BaseModel, validator, Field
+    from pydantic import BaseModel, validator
 
 from paperqa.chains import get_score, make_chain
 from paperqa.paths import PAPERQA_DIR

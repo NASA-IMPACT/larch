@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from langchain.schema.document import Document as LangchainDocument
 from pydantic import BaseModel

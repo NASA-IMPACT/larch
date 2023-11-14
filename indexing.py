@@ -28,8 +28,8 @@ from .metadata import AbstractMetadataExtractor, InstructorBasedOpenAIMetadataEx
 from .paperqa_patched.docs import Docs
 from .paperqa_patched.readers import read_doc_patched
 from .processors import TextProcessor
-from .structures import Document, Response
-from .utils import is_lambda, remove_duplicate_documents
+from .structures import Document, LangchainDocument, Response
+from .utils import LangchainDocumentParser, is_lambda, remove_duplicate_documents
 
 
 class DocumentIndexer(ABC):
@@ -52,7 +52,15 @@ class DocumentIndexer(ABC):
         self.text_preprocessor = text_preprocessor or (lambda x: x)
         self.debug = debug
         self._docs = docs or []
-        self.doc_store = None
+        self._doc_store = None
+
+    @property
+    def doc_store(self):
+        return self._doc_store
+
+    @doc_store.setter
+    def doc_store(self, value):
+        self._doc_store = value
 
     @property
     def docs(self) -> List[str]:
@@ -122,7 +130,7 @@ class PaperQADocumentIndexer(DocumentIndexer):
 
         # if doc_store is provided externally, just use that
         # else construct a new one
-        self.doc_store = doc_store or Docs(
+        self._doc_store = doc_store or Docs(
             llm=llm,
             embeddings=embeddings,
             text_preprocessor=self.text_preprocessor,
@@ -133,6 +141,8 @@ class PaperQADocumentIndexer(DocumentIndexer):
         save_path = kwargs.get("save_path", None)
         _texts_len_original = len(self.texts)
         _docs = []
+        if isinstance(paths, str):
+            paths = [paths]
         for path in tqdm(paths):
             if path in self.docs:
                 continue
@@ -249,43 +259,48 @@ class LangchainDocumentIndexer(DocumentIndexer):
             return_source_documents=True,
         )
 
+    @property
     def doc_store(self):
-        return self.vector_store.docstore
+        return self.vector_store.docstore if self.vector_store is not None else None
 
-    def _get_documents(self, paths: List[str]):
+    @property
+    def num_chunks(self) -> int:
+        if self.doc_store is None:
+            return 0
+        return len(self.doc_store._dict.values())
+
+    def _get_documents(self, paths: List[str]) -> List[LangchainDocument]:
         if self.debug:
-            logger.debug(f"Loading and preprocessing...")
-        docs = []
-        for path in tqdm(paths):
-            if path in self.docs:
-                continue
-            _docs = PyPDFLoader(path).load()
-            for _doc in _docs:
-                _doc.page_content = self.text_preprocessor(_doc.page_content)
-            docs.extend(_docs)
-            self.docs.append(path)
-        if self.text_splitter is not None and isinstance(
-            self.text_splitter,
-            TextSplitter,
-        ):
-            docs = self.text_splitter.split_documents(docs)
+            logger.debug("Loading and preprocessing...")
+
+        doc_parser = LangchainDocumentParser(text_splitter=self.text_splitter)
+        docs = doc_parser(paths)
+        for _doc in docs:
+            _doc.page_content = self.text_preprocessor(_doc.page_content)
         return docs
 
     def index_documents(self, paths: List[str], **kwargs) -> LangchainDocumentIndexer:
         store_dir = kwargs.get("store_dir")
         index_name = kwargs.get("index_name")
         docs = self._get_documents(paths)
+        self.docs.extend(paths)
         if len(docs) < 1:
             logger.warning(
                 "Skipping indexing. Either empty docs or no new docs found!",
             )
             return self
+
+        # build index
         if self.vector_store is None:
             self.vector_store = FAISS.from_documents(docs, self.embeddings)
         else:
             self.vector_store.add_documents(docs)
+
         if self.debug:
-            logger.debug(f"Indexed {len(docs)} documents from {len(paths)} files.")
+            logger.debug(
+                f"Indexed {self.num_chunks} chunks from {len(self.docs)} files.",
+            )
+
         if store_dir and index_name:
             self.save_index(store_dir=store_dir, index_name=index_name)
         return self

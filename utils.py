@@ -4,11 +4,18 @@ import json
 import multiprocessing
 import re
 from collections.abc import MutableMapping
-from typing import List, TypeVar
+from typing import List, Optional, TypeVar, Union
 
+from langchain.document_loaders import (
+    PyPDFLoader,
+    TextLoader,
+    UnstructuredWordDocumentLoader,
+)
 from langchain.output_parsers import PydanticOutputParser
 from langchain.pydantic_v1 import BaseModel, ValidationError
 from langchain.schema import OutputParserException
+from langchain.schema.document import Document as LangchainDocument
+from tqdm import tqdm
 
 from .structures import Document
 
@@ -106,3 +113,61 @@ def remove_duplicate_documents(documents: List[Document]) -> List[Document]:
             unique_documents.append(document)
             _checks.add(text)
     return unique_documents
+
+
+class LangchainDocumentParser:
+    def __init__(
+        self,
+        text_splitter: Optional = None,
+        docx_loader_cls=UnstructuredWordDocumentLoader,
+    ) -> None:
+        self.text_splitter = text_splitter
+        self.docx_loader_cls = docx_loader_cls
+
+    def parse_pdf(self, path: str) -> List[LangchainDocument]:
+        docs = PyPDFLoader(path).load()
+        return self._split_text(docs)
+
+    def parse_docx(self, path: str):
+        docs = self.docx_loader_cls(path).load()
+        return self._split_text(docs)
+
+    def parse_txt(self, path: str):
+        docs = TextLoader(path).load()
+        return self._split_text(docs)
+
+    def parse(self, path: str):
+        _parse_fn = self.parse_pdf
+        if LangchainDocumentParser.is_pdf(path):
+            _parse_fn = self.parse_pdf
+        elif LangchainDocumentParser.is_docx(path):
+            _parse_fn = self.parse_docx
+        elif LangchainDocumentParser.is_text_file(path):
+            _parse_fn = self.parse_txt
+        return _parse_fn(path)
+
+    def is_pdf(path: str):
+        return path.endswith((".pdf", ".PDF"))
+
+    def is_docx(path: str):
+        return path.endswith(".docx")
+
+    def is_text_file(path: str):
+        return path.endswith((".txt", ".md", ".markdown"))
+
+    def _split_text(self, docs):
+        if self.text_splitter is not None:
+            docs = self.text_splitter.split_documents(docs)
+        return docs
+
+    def __call__(
+        self,
+        paths: Union[str, List[str]],
+        **kwargs,
+    ) -> List[LangchainDocument]:
+        if isinstance(paths, str):
+            paths = [paths]
+        docs = []
+        for path in tqdm(paths):
+            docs.extend(self.parse(path))
+        return docs
