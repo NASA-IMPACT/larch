@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import ast
+import itertools
 import json
 import pickle
 from abc import ABC, abstractmethod
@@ -51,8 +52,39 @@ class DocumentIndexer(ABC):
 
         self.text_preprocessor = text_preprocessor or (lambda x: x)
         self.debug = debug
+        # list of paths added
         self._docs = docs or []
         self._doc_store = None
+
+    def _get_documents(
+        self,
+        paths: List[str],
+        text_splitter: Optional[TextSplitter] = None,
+    ) -> Dict[str, List[LangchainDocument]]:
+        """
+        This parses all the files and returns a dictionary mapping
+        from file path to langchain document objects.
+        """
+        if self.debug:
+            logger.debug("Loading and preprocessing...")
+
+        # if not provided externally, get from the object, else just None
+        text_splitter = text_splitter or getattr(self, "text_splitter", None)
+        doc_parser = LangchainDocumentParser(text_splitter=text_splitter)
+        doc_map = doc_parser(paths)
+
+        # pre-process texts
+        for path, docs in doc_map.items():
+            for _doc in docs:
+                _doc.page_content = self.text_preprocessor(_doc.page_content)
+        return doc_map
+
+    def _get_new_paths(self, paths: List[str]) -> List[str]:
+        """
+        This filters the paths to only get the files that aren't
+        indexed yet.
+        """
+        return list(filter(lambda path: path not in self.docs, paths))
 
     @property
     def doc_store(self):
@@ -139,10 +171,12 @@ class PaperQADocumentIndexer(DocumentIndexer):
 
     def index_documents(self, paths: List[str], **kwargs) -> PaperQADocumentIndexer:
         save_path = kwargs.get("save_path", None)
-        _texts_len_original = len(self.texts)
-        _docs = []
         if isinstance(paths, str):
             paths = [paths]
+
+        prevous_n_texts = len(self.texts)
+
+        paths = self._get_new_paths(paths)
         for path in tqdm(paths):
             if path in self.docs:
                 continue
@@ -158,9 +192,8 @@ class PaperQADocumentIndexer(DocumentIndexer):
 
         self.doc_store._build_texts_index()
         if self.debug:
-            _n_added = len(self.texts) - _texts_len_original
             logger.debug(
-                f"Total of {len(self.docs)} docs and {_n_added} pages indexed.",
+                f"Total of {len(paths)} docs and {len(self.texts) - prevous_n_texts} chunks indexed.",
             )
 
         return self
@@ -269,20 +302,14 @@ class LangchainDocumentIndexer(DocumentIndexer):
             return 0
         return len(self.doc_store._dict.values())
 
-    def _get_documents(self, paths: List[str]) -> List[LangchainDocument]:
-        if self.debug:
-            logger.debug("Loading and preprocessing...")
-
-        doc_parser = LangchainDocumentParser(text_splitter=self.text_splitter)
-        docs = doc_parser(paths)
-        for _doc in docs:
-            _doc.page_content = self.text_preprocessor(_doc.page_content)
-        return docs
-
     def index_documents(self, paths: List[str], **kwargs) -> LangchainDocumentIndexer:
         store_dir = kwargs.get("store_dir")
         index_name = kwargs.get("index_name")
-        docs = self._get_documents(paths)
+
+        paths = self._get_new_paths(paths)
+        doc_map = self._get_documents(paths, text_splitter=self.text_splitter)
+        docs = list(itertools.chain(*doc_map.values()))
+
         self.docs.extend(paths)
         if len(docs) < 1:
             logger.warning(
@@ -291,6 +318,7 @@ class LangchainDocumentIndexer(DocumentIndexer):
             return self
 
         # build index
+        _prev_chunks_num = self.num_chunks
         if self.vector_store is None:
             self.vector_store = FAISS.from_documents(docs, self.embeddings)
         else:
@@ -298,7 +326,7 @@ class LangchainDocumentIndexer(DocumentIndexer):
 
         if self.debug:
             logger.debug(
-                f"Indexed {self.num_chunks} chunks from {len(self.docs)} files.",
+                f"Indexed {self.num_chunks-_prev_chunks_num} chunks from {len(paths)} files.",
             )
 
         if store_dir and index_name:
@@ -392,46 +420,41 @@ class DocumentMetadataIndexer(DocumentIndexer):
     def schema(self) -> Type[BaseModel]:
         return self.metadata_extractor.schema
 
-    def index_documents(self, paths: List[str], **kwargs) -> Dict[str, BaseModel]:
+    def index_documents(
+        self,
+        paths: List[str],
+        chunk_separator: str = "\n",
+        **kwargs,
+    ) -> DocumentMetadataIndexer:
         save_path = kwargs.get("save_path", None)
         if self.debug:
             logger.debug(f"save_path = {save_path}")
-        mstore = {}
-        for p in tqdm(paths):
-            if p in self.metadata_store:
-                mstore[p] = self.metadata_store[p]
+
+        paths = self._get_new_paths(paths)
+        doc_map = self._get_documents(paths, text_splitter=None)
+        chunk_separator = str(chunk_separator)
+        for path, docs in doc_map.items():
+            # skip if already present
+            if path in self.metadata_store:
                 continue
 
-            text = read_doc_patched(
-                p,
-                Doc(citation=p, dockey=p, docname=p),
-                text_preprocessor=self.text_preprocessor,
-            )
-            text = map(lambda x: x.text, text)
-            text = "\n".join(text)
-
-            hsh = str(hash(text))
-            if hsh in self.metadata_store:
-                mstore[hsh] = self.metadata_store[hsh]
-                continue
+            text = chunk_separator.join(map(lambda x: x.page_content, docs))
 
             if self.debug:
-                logger.debug(f"Extracting metadata from {p}")
+                logger.debug(f"Extracting metadata from {path}")
 
             try:
-                mstore[p] = self.metadata_extractor(text)
+                self.metadata_store[path] = self.metadata_extractor(text)
             except Exception as e:
                 if self.skip_errors:
-                    self.errors.add(p)
-                    logger.debug(f"Skipping {p} | {str(e)}")
+                    self.errors.add(path)
+                    logger.debug(f"Skipping {path} | {str(e)}")
                     continue
                 else:
                     raise e
-            self.metadata_store.update(mstore)
             if save_path is not None:
                 self.save_index(save_path)
-
-        self.metadata_store.update(mstore)
+            self.docs.append(path)
         return self
 
     def save_index(self, path: str) -> None:
@@ -447,6 +470,7 @@ class DocumentMetadataIndexer(DocumentIndexer):
             dump_val = json.load(f)
             for k, v in dump_val.items():
                 self.metadata_store[k] = self.schema.model_construct(**v)
+                self.docs.append(k)
         return self
 
     @property

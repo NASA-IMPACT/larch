@@ -4,7 +4,7 @@ import json
 import multiprocessing
 import re
 from collections.abc import MutableMapping
-from typing import List, Optional, TypeVar, Union
+from typing import Dict, List, Optional, TypeVar, Union
 
 from langchain.document_loaders import (
     PyPDFLoader,
@@ -164,10 +164,10 @@ class LangchainDocumentParser:
         self,
         paths: Union[str, List[str]],
         **kwargs,
-    ) -> List[LangchainDocument]:
+    ) -> Dict[str, List[LangchainDocument]]:
         if isinstance(paths, str):
             paths = [paths]
-        docs = []
+        docs = {}
         for path in tqdm(paths):
-            docs.extend(self.parse(path))
+            docs[path] = self.parse(path)
         return docs
