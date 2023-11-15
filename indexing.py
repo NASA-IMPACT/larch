@@ -66,7 +66,7 @@ class DocumentIndexer(ABC):
         from file path to langchain document objects.
         """
         if self.debug:
-            logger.debug("Loading and preprocessing...")
+            logger.debug("Loading...")
 
         # if not provided externally, get from the object, else just None
         text_splitter = text_splitter or getattr(self, "text_splitter", None)
@@ -74,7 +74,9 @@ class DocumentIndexer(ABC):
         doc_map = doc_parser(paths)
 
         # pre-process texts
-        for path, docs in doc_map.items():
+        if self.debug:
+            logger.debug("Preprocessing texts...")
+        for path, docs in tqdm(doc_map.items()):
             for _doc in docs:
                 _doc.page_content = self.text_preprocessor(_doc.page_content)
         return doc_map
@@ -84,6 +86,8 @@ class DocumentIndexer(ABC):
         This filters the paths to only get the files that aren't
         indexed yet.
         """
+        if isinstance(paths, str):
+            paths = [paths]
         return list(filter(lambda path: path not in self.docs, paths))
 
     @property
@@ -413,6 +417,7 @@ class DocumentMetadataIndexer(DocumentIndexer):
             )
         )
         self.metadata_store = {}
+        self._doc_store = {}
         self.errors = set()
         self.skip_errors = skip_errors
 
@@ -426,18 +431,21 @@ class DocumentMetadataIndexer(DocumentIndexer):
         chunk_separator: str = "\n",
         **kwargs,
     ) -> DocumentMetadataIndexer:
-        save_path = kwargs.get("save_path", None)
+        # to double check which argument has the actual path to save metadata
+        save_path = kwargs.get("save_path", kwargs.get("metadata_path", None))
+        doc_store_path = kwargs.get("doc_store_path", None)
         if self.debug:
-            logger.debug(f"save_path = {save_path}")
+            logger.debug(f"save_path = {save_path} | doc_store_path={doc_store_path}")
 
         paths = self._get_new_paths(paths)
         doc_map = self._get_documents(paths, text_splitter=None)
         chunk_separator = str(chunk_separator)
-        for path, docs in doc_map.items():
+        for path, docs in tqdm(doc_map.items()):
             # skip if already present
             if path in self.metadata_store:
                 continue
 
+            self._doc_store[path] = docs
             text = chunk_separator.join(map(lambda x: x.page_content, docs))
 
             if self.debug:
@@ -453,33 +461,94 @@ class DocumentMetadataIndexer(DocumentIndexer):
                 else:
                     raise e
             if save_path is not None:
-                self.save_index(save_path)
-            self.docs.append(path)
+                self.save_index(save_path, doc_store_path=doc_store_path)
         return self
 
-    def save_index(self, path: str) -> None:
+    def _dump_doc_store(self, dump_path: str) -> bool:
+        doc_store = {}
+        if dump_path is None:
+            return False
+        for path, docs in self.doc_store.items():
+            doc_store[path] = list(map(lambda doc: doc.dict(), docs))
+        if not dump_path.endswith(".json"):
+            dump_path = f"{dump_path}.json"
+        with open(dump_path, "w") as f:
+            json.dump(doc_store, f)
+        return True
+
+    def _dump_metadata_store(self, dump_path: str) -> bool:
+        if dump_path is None:
+            return False
         dump_val = {}
-        for k, v in self.metadata_store.items():
-            dump_val[k] = v.dict()
-        with open(path, "w") as f:
+        for path, vals in self.metadata_store.items():
+            dump_val[path] = vals.dict()
+        with open(dump_path, "w") as f:
             json.dump(dump_val, f)
+        return True
+
+    def save_index(
+        self,
+        metadata_path: str,
+        doc_store_path: Optional[str] = None,
+    ) -> None:
+        """
+        Saves extracted metadata as well as the document parsed.
+        Args:
+            ```metadata_path```: ```str```
+                json path to save all the metadata extracted.
+                It saves `DocumentMetadataIndexer.metadata_store` dict
+            ```doc_store_path```: ```Optional[str]```
+                If provided, this is the json file to which
+                the extracted documents (full) are saved to.
+                It saves `DocumentMetadataIndexer.doc_store` object.
+        """
+        self._dump_metadata_store(metadata_path)
+        self._dump_doc_store(doc_store_path)
         return self
 
-    def load_index(self, path: str) -> None:
-        with open(path, "r") as f:
+    def _load_doc_store(
+        self,
+        doc_store_path: str,
+    ) -> Dict[str, List[LangchainDocument]]:
+        if doc_store_path is None:
+            return {}
+        doc_store = {}
+        with open(doc_store_path, "r") as f:
+            dump_val = json.load(f)
+            for path, docs in dump_val.items():
+                doc_store[path] = list(
+                    map(lambda d: LangchainDocument.construct(**d), docs),
+                )
+        return doc_store
+
+    def _load_metadata_store(self, metadata_path: str) -> Dict[str, BaseModel]:
+        if metadata_path is None:
+            return {}
+        metadata_store = {}
+        with open(metadata_path, "r") as f:
             dump_val = json.load(f)
             for k, v in dump_val.items():
-                self.metadata_store[k] = self.schema.model_construct(**v)
-                self.docs.append(k)
-        return self
+                metadata_store[k] = self.schema.model_construct(**v)
+        return metadata_store
 
     @property
-    def doc_store(self) -> dict:
-        return self.metadata_store
+    def docs(self) -> List[str]:
+        """
+        Returns a list of files/paths that are already extracted.
+        """
+        return list(self.metadata_store.keys())
 
-    @doc_store.setter
-    def doc_store(self, value):
-        self.metadata_store = value
+    def load_index(
+        self,
+        metadata_path: str,
+        doc_store_path: Optional[str] = None,
+    ) -> None:
+        """
+        Loads extracted metadata as well as the full documents.
+        """
+        self.metadata_store.update(self._load_metadata_store(metadata_path))
+        self._doc_store.update(self._load_doc_store(doc_store_path))
+        return self
 
     def query(self, *args, **kwargs):
         raise NotImplementedError()
