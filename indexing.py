@@ -196,13 +196,11 @@ class PaperQADocumentIndexer(DocumentIndexer):
                 logger.debug(f"Creating index for src={path}")
             self.doc_store.add(path, doc_type=doc_type)
             self.docs.append(path)
-            if save_path is not None:
-                # hack
-                self.doc_store.text_preprocessor = None
+            if save_path:
                 self.save_index(save_path)
-                self.doc_store.text_preprocessor = self.text_preprocessor
-
         self.doc_store._build_texts_index()
+        self.save_index(save_path)
+
         if self.debug:
             logger.debug(
                 f"Total of {len(paths)} docs and {len(self.texts) - prevous_n_texts} chunks indexed.",
@@ -213,10 +211,18 @@ class PaperQADocumentIndexer(DocumentIndexer):
     def save_index(self, path: str) -> PaperQADocumentIndexer:
         if not self.doc_store:
             return self
+        if not path:
+            return self
+
+        # hack to prevent error due to lambda functions :/
+        if path is not None:
+            self.doc_store.text_preprocessor = None
+
         dump_val = dict(docs=self.docs, doc_store=self.doc_store)
         logger.info(f"Saving document index to {path}")
         with open(path, "wb") as f:
             pickle.dump(dump_val, f)
+        self.doc_store.text_preprocessor = self.text_preprocessor
         return self
 
     def load_index(self, path: str) -> PaperQADocumentIndexer:
