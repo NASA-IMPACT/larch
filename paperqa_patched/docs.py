@@ -27,7 +27,6 @@ from paperqa.types import (
     Answer,
     CallbackFactory,
     Context,
-    Doc,
     DocKey,
     PromptCollection,
     Text,
@@ -44,12 +43,13 @@ from paperqa.utils import (
 )
 
 from .readers import read_doc_patched
+from .types import DocWithMetadata
 
 
 class Docs(BaseModel, arbitrary_types_allowed=True, smart_union=True):
     """A collection of documents to be used for answering questions."""
 
-    docs: Dict[DocKey, Doc] = {}
+    docs: Dict[DocKey, DocWithMetadata] = {}
     texts: List[Text] = []
     docnames: Set[str] = set()
     texts_index: Optional[VectorStore] = None
@@ -194,6 +194,7 @@ class Docs(BaseModel, arbitrary_types_allowed=True, smart_union=True):
         disable_check: bool = False,
         dockey: Optional[DocKey] = None,
         chunk_chars: int = 3000,
+        doc_type: str = None,
     ) -> Optional[str]:
         """Add a document to the collection."""
         if dockey is None:
@@ -206,7 +207,12 @@ class Docs(BaseModel, arbitrary_types_allowed=True, smart_union=True):
                 skip_system=True,
             )
             # peak first chunk
-            fake_doc = Doc(docname="", citation="", dockey=dockey)
+            fake_doc = DocWithMetadata(
+                docname="",
+                citation="",
+                dockey=dockey,
+                doc_type=doc_type,
+            )
             texts = read_doc_patched(
                 path,
                 fake_doc,
@@ -239,7 +245,12 @@ class Docs(BaseModel, arbitrary_types_allowed=True, smart_union=True):
                 year = match.group(1)  # type: ignore
             docname = f"{author}{year}"
         docname = self._get_unique_name(docname)
-        doc = Doc(docname=docname, citation=citation, dockey=dockey)
+        doc = DocWithMetadata(
+            docname=docname,
+            citation=citation,
+            dockey=dockey,
+            doc_type=doc_type,
+        )
         texts = read_doc_patched(
             path,
             doc,
@@ -263,7 +274,7 @@ class Docs(BaseModel, arbitrary_types_allowed=True, smart_union=True):
     def add_texts(
         self,
         texts: List[Text],
-        doc: Doc,
+        doc: DocWithMetadata,
     ) -> bool:
         """Add chunked texts to the collection. This is useful if you have already chunked the texts yourself.
 
@@ -348,7 +359,7 @@ class Docs(BaseModel, arbitrary_types_allowed=True, smart_union=True):
             # for backwards compatibility (old pickled objects)
             matched_docs = [self.docs[m.metadata["dockey"]] for m in matches]
         except KeyError:
-            matched_docs = [Doc(**m.metadata) for m in matches]
+            matched_docs = [DocWithMetadata(**m.metadata) for m in matches]
         if len(matched_docs) == 0:
             return set()
         # this only works for gpt-4 (in my testing)
@@ -405,6 +416,8 @@ class Docs(BaseModel, arbitrary_types_allowed=True, smart_union=True):
             raw_texts = [t.text for t in texts]
             text_embeddings = [t.embeddings for t in texts]
             metadatas = [t.dict(exclude={"embeddings", "text"}) for t in texts]
+            for m in metadatas:
+                m["doc_type"] = m.get("doc", {}).get("doc_type", None)
             self.texts_index = FAISS.from_embeddings(
                 # wow adding list to the zip was tricky
                 text_embeddings=list(zip(raw_texts, text_embeddings)),
@@ -547,7 +560,7 @@ class Docs(BaseModel, arbitrary_types_allowed=True, smart_union=True):
                 text=Text(
                     text=match.page_content,
                     name=match.metadata["name"],
-                    doc=Doc(**match.metadata["doc"]),
+                    doc=DocWithMetadata(**match.metadata["doc"]),
                 ),
                 score=get_score(context),
             )
@@ -561,7 +574,7 @@ class Docs(BaseModel, arbitrary_types_allowed=True, smart_union=True):
                     text=Text(
                         text=match.page_content,
                         name=match.metadata["name"],
-                        doc=Doc(**match.metadata["doc"]),
+                        doc=DocWithMetadata(**match.metadata["doc"]),
                     ),
                 )
                 for match in matches
@@ -604,6 +617,8 @@ class Docs(BaseModel, arbitrary_types_allowed=True, smart_union=True):
         answer: Optional[Answer] = None,
         key_filter: Optional[bool] = None,
         get_callbacks: CallbackFactory = lambda x: None,
+        doc_type: Optional[str] = None,
+        **kwargs,
     ) -> Answer:
         # special case for jupyter notebooks
         if "get_ipython" in globals() or "google.colab" in sys.modules:
@@ -625,6 +640,8 @@ class Docs(BaseModel, arbitrary_types_allowed=True, smart_union=True):
                 answer=answer,
                 key_filter=key_filter,
                 get_callbacks=get_callbacks,
+                doc_type=doc_type,
+                **kwargs,
             ),
         )
 
@@ -638,6 +655,8 @@ class Docs(BaseModel, arbitrary_types_allowed=True, smart_union=True):
         answer: Optional[Answer] = None,
         key_filter: Optional[bool] = None,
         get_callbacks: CallbackFactory = lambda x: None,
+        doc_type: Optional[str] = None,
+        **kwargs,
     ) -> Answer:
         if k < max_sources:
             raise ValueError("k should be greater than max_sources")

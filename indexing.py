@@ -30,7 +30,12 @@ from .paperqa_patched.docs import Docs
 from .paperqa_patched.readers import read_doc_patched
 from .processors import TextProcessor
 from .structures import Document, LangchainDocument, Response
-from .utils import LangchainDocumentParser, is_lambda, remove_duplicate_documents
+from .utils import (
+    LangchainDocumentParser,
+    is_lambda,
+    remove_duplicate_documents,
+    remove_nulls,
+)
 
 
 class DocumentIndexer(ABC):
@@ -60,6 +65,7 @@ class DocumentIndexer(ABC):
         self,
         paths: List[str],
         text_splitter: Optional[TextSplitter] = None,
+        **metadata,
     ) -> Dict[str, List[LangchainDocument]]:
         """
         This parses all the files and returns a dictionary mapping
@@ -79,6 +85,7 @@ class DocumentIndexer(ABC):
         for path, docs in tqdm(doc_map.items()):
             for _doc in docs:
                 _doc.page_content = self.text_preprocessor(_doc.page_content)
+                _doc.metadata.update(**metadata)
         return doc_map
 
     def _get_new_paths(self, paths: List[str]) -> List[str]:
@@ -175,6 +182,7 @@ class PaperQADocumentIndexer(DocumentIndexer):
 
     def index_documents(self, paths: List[str], **kwargs) -> PaperQADocumentIndexer:
         save_path = kwargs.get("save_path", None)
+        doc_type = kwargs.get("doc_type", None)
         if isinstance(paths, str):
             paths = [paths]
 
@@ -186,7 +194,7 @@ class PaperQADocumentIndexer(DocumentIndexer):
                 continue
             if self.debug:
                 logger.debug(f"Creating index for src={path}")
-            self.doc_store.add(path)
+            self.doc_store.add(path, doc_type=doc_type)
             self.docs.append(path)
             if save_path is not None:
                 # hack
@@ -224,12 +232,25 @@ class PaperQADocumentIndexer(DocumentIndexer):
 
         docs = []
         vecstore = self.doc_store.texts_index
-        if vecstore is not None:
-            docs = vecstore.similarity_search(query, k=top_k)
-            for doc in docs:
-                if self.text_preprocessor is not None:
-                    doc.page_content = self.text_preprocessor(doc.page_content)
-            docs = list(map(lambda d: Document.from_langchain_document(d), docs))
+        if vecstore is None:
+            return []
+
+        filter_by = remove_nulls(kwargs.get("filter_by", {}))
+        if self.debug:
+            logger.debug(f"filter_by = {filter_by}")
+        docs = vecstore.similarity_search(
+            query,
+            k=top_k,
+            filter=filter_by,
+        )
+        for doc in docs:
+            if self.text_preprocessor is not None:
+                doc.page_content = self.text_preprocessor(doc.page_content)
+
+        # Convert to larch format and remove any duplicates resulting from
+        # multiple filters
+        docs = list(map(lambda d: Document.from_langchain_document(d), docs))
+        docs = remove_duplicate_documents(docs)
 
         # update source
         for doc in docs:
@@ -287,12 +308,14 @@ class LangchainDocumentIndexer(DocumentIndexer):
         return list(set(_paths))
 
     def qa_chain(self, k: int = 15, **kwargs) -> Type[Chain]:
+        search_params = kwargs.copy()
+        search_params["filter"] = search_params.pop("filter_by", {})
         return RetrievalQA(
             combine_documents_chain=load_qa_chain(
                 self.llm,
                 chain_type=kwargs.get("chain_type", "stuff"),
             ),
-            retriever=self.vector_store.as_retriever(k=k),
+            retriever=self.vector_store.as_retriever(k=k, search_kwargs=search_params),
             return_source_documents=True,
         )
 
@@ -311,7 +334,7 @@ class LangchainDocumentIndexer(DocumentIndexer):
         index_name = kwargs.get("index_name")
 
         paths = self._get_new_paths(paths)
-        doc_map = self._get_documents(paths, text_splitter=self.text_splitter)
+        doc_map = self._get_documents(paths, text_splitter=self.text_splitter, **kwargs)
         docs = list(itertools.chain(*doc_map.values()))
 
         self.docs.extend(paths)
@@ -346,7 +369,15 @@ class LangchainDocumentIndexer(DocumentIndexer):
         if self.vector_store is None:
             logger.warning("vector_store not initialized!")
             return []
-        lang_docs = self.vector_store.similarity_search(query, k=top_k)
+        filter_by = remove_nulls(kwargs.get("filter_by", {}))
+        if self.debug:
+            logger.debug(f"filter_by = {filter_by}")
+
+        lang_docs = self.vector_store.similarity_search(
+            query,
+            k=top_k,
+            filter=filter_by,
+        )
         return list(map(Document.from_langchain_document, lang_docs))
 
     def query(self, query: str, top_k=5, **kwargs) -> Response:
