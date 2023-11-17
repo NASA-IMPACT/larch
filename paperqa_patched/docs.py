@@ -407,21 +407,29 @@ class Docs(BaseModel, arbitrary_types_allowed=True, smart_union=True):
         if keys is not None and self.jit_texts_index:
             del self.texts_index
             self.texts_index = None
+
+        texts = self.texts
+        if keys is not None:
+            texts = [t for t in texts if t.doc.dockey in keys]
+        if len(texts) == 0:
+            return
+
+        # get texts, embedding, metadata
+        raw_texts = [t.text for t in texts]
+        text_embeddings = [t.embeddings for t in texts]
+        metadatas = [t.dict(exclude={"embeddings", "text"}) for t in texts]
+        for m in metadatas:
+            m["doc_type"] = m.get("doc", {}).get("doc_type", None)
+
         if self.texts_index is None:
-            texts = self.texts
-            if keys is not None:
-                texts = [t for t in texts if t.doc.dockey in keys]
-            if len(texts) == 0:
-                return
-            raw_texts = [t.text for t in texts]
-            text_embeddings = [t.embeddings for t in texts]
-            metadatas = [t.dict(exclude={"embeddings", "text"}) for t in texts]
-            for m in metadatas:
-                m["doc_type"] = m.get("doc", {}).get("doc_type", None)
             self.texts_index = FAISS.from_embeddings(
-                # wow adding list to the zip was tricky
                 text_embeddings=list(zip(raw_texts, text_embeddings)),
                 embedding=self.embeddings,
+                metadatas=metadatas,
+            )
+        else:
+            self.texts_index.add_embeddings(
+                text_embeddings=list(zip(raw_texts, text_embeddings)),
                 metadatas=metadatas,
             )
 

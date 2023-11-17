@@ -279,6 +279,10 @@ class PaperQADocumentIndexer(DocumentIndexer):
     def texts(self) -> List[Text]:
         return self.doc_store.texts
 
+    @propertr
+    def vector_store(self) -> Type[VectorStore]:
+        return self.doc_store.texts_index
+
 
 class LangchainDocumentIndexer(DocumentIndexer):
     """
