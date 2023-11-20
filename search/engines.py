@@ -8,6 +8,7 @@ from typing import List, Optional, Type
 import openai
 from langchain.agents import create_sql_agent
 from langchain.agents.agent_toolkits import SQLDatabaseToolkit
+from langchain.agents.agent_toolkits.sql.prompt import SQL_PREFIX
 from langchain.agents.agent_types import AgentType
 from langchain.base_language import BaseLanguageModel
 from langchain.callbacks.manager import CallbackManagerForRetrieverRun
@@ -203,6 +204,8 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         super().__init__(debug=debug)
         self.llm = llm or ChatOpenAI(temperature=0, model="gpt-3.5-turbo-0613")
         self.db = SQLDatabase.from_uri(db_uri, include_tables=tables)
+
+        prompt_prefix = prompt_prefix or SQL_PREFIX
         self.prompt_prefix = prompt_prefix
 
         self.agent_executor = create_sql_agent(
