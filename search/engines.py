@@ -197,17 +197,20 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         db_uri: str,
         tables: list,
         llm: Optional = None,
+        prompt_prefix: Optional[str] = None,
         debug: bool = False,
     ) -> None:
         super().__init__(debug=debug)
         self.llm = llm or ChatOpenAI(temperature=0, model="gpt-3.5-turbo-0613")
         self.db = SQLDatabase.from_uri(db_uri, include_tables=tables)
+        self.prompt_prefix = prompt_prefix
 
         self.agent_executor = create_sql_agent(
             llm=self.llm,
             toolkit=SQLDatabaseToolkit(db=self.db, llm=OpenAI(temperature=0)),
             verbose=self.debug,
             agent_type=AgentType.OPENAI_FUNCTIONS,
+            prefix=prompt_prefix,
         )
 
     @staticmethod
