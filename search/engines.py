@@ -218,7 +218,10 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
 
     @staticmethod
     def augment_query(query: str) -> str:
-        return query + "Use ilike with substring match"
+        return (
+            query
+            + "Use SIMILARITY(<column_name>, ‘<substring>’)>0.4 with substring match"
+        )
 
     def query(self, query: str, **kwargs) -> Response:
         query = SQLAgentSearchEngine.augment_query(query)
