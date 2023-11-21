@@ -25,7 +25,7 @@ from loguru import logger
 
 from ..indexing import DocumentIndexer
 from ..metadata import AbstractMetadataExtractor
-from ..prompts import QA_DOCUMENTS_PROMPT
+from ..prompts import QA_DOCUMENTS_PROMPT, SQL_AGENT_QUERY_AUGMENTATION_PROMPT
 from ..structures import Document, LangchainDocument, Response
 from ..utils import remove_nulls
 
@@ -200,14 +200,18 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         llm: Optional = None,
         prompt_prefix: Optional[str] = None,
         sql_fuzzy_threshold: float = 0.75,
+        query_augmentation_prompt: Optional[str] = None,
         debug: bool = False,
     ) -> None:
         super().__init__(debug=debug)
+        self.query_augmentation_prompt = (
+            query_augmentation_prompt or SQL_AGENT_QUERY_AUGMENTATION_PROMPT
+        )
+
         self.llm = llm or ChatOpenAI(temperature=0, model="gpt-3.5-turbo-0613")
         self.db = SQLDatabase.from_uri(db_uri, include_tables=tables)
 
-        prompt_prefix = prompt_prefix or SQL_PREFIX
-        self.prompt_prefix = prompt_prefix
+        self.prompt_prefix = prompt_prefix or SQL_PREFIX
         self.sql_fuzzy_threshold = sql_fuzzy_threshold
 
         self.agent_executor = create_sql_agent(
@@ -215,20 +219,27 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
             toolkit=SQLDatabaseToolkit(db=self.db, llm=OpenAI(temperature=0)),
             verbose=self.debug,
             agent_type=AgentType.OPENAI_FUNCTIONS,
-            prefix=prompt_prefix,
+            prefix=self.prompt_prefix,
         )
 
     @staticmethod
-    def augment_query(query: str, threshold: float) -> str:
-        return (
-            query
-            + f"Use SIMILARITY(<column_name>, ‘<substring>’)>={threshold} with substring match."
+    def augment_query(query: str, augmentation_prompt: str, threshold: float) -> str:
+        augmentation_prompt = (
+            augmentation_prompt.format(threshold=threshold)
+            if "{threshold}" in augmentation_prompt
+            else augmentation_prompt
         )
+        return f"Query: {query}\n" + augmentation_prompt
 
     def query(self, query: str, **kwargs) -> Response:
-        query = SQLAgentSearchEngine.augment_query(query, self.sql_fuzzy_threshold)
+        query = SQLAgentSearchEngine.augment_query(
+            query,
+            self.query_augmentation_prompt,
+            self.sql_fuzzy_threshold,
+        )
         result = self.agent_executor.run(query)
         if self.debug:
+            logger.debug(f"Query = {query}")
             logger.debug(f"Result={result}")
         return Response(text=result, source=self.__classname__)
 
