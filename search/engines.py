@@ -199,6 +199,7 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         tables: list,
         llm: Optional = None,
         prompt_prefix: Optional[str] = None,
+        sql_fuzzy_threshold: float = 0.75,
         debug: bool = False,
     ) -> None:
         super().__init__(debug=debug)
@@ -207,6 +208,7 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
 
         prompt_prefix = prompt_prefix or SQL_PREFIX
         self.prompt_prefix = prompt_prefix
+        self.sql_fuzzy_threshold = sql_fuzzy_threshold
 
         self.agent_executor = create_sql_agent(
             llm=self.llm,
@@ -217,14 +219,14 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         )
 
     @staticmethod
-    def augment_query(query: str) -> str:
+    def augment_query(query: str, threshold: float) -> str:
         return (
             query
-            + "Use SIMILARITY(<column_name>, ‘<substring>’)>0.4 with substring match"
+            + f"Use SIMILARITY(<column_name>, ‘<substring>’)>={threshold} with substring match."
         )
 
     def query(self, query: str, **kwargs) -> Response:
-        query = SQLAgentSearchEngine.augment_query(query)
+        query = SQLAgentSearchEngine.augment_query(query, self.sql_fuzzy_threshold)
         result = self.agent_executor.run(query)
         if self.debug:
             logger.debug(f"Result={result}")

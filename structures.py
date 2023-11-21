@@ -5,7 +5,7 @@ from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 from langchain.schema.document import Document as LangchainDocument
-from pydantic import BaseModel
+from pydantic import BaseModel, SerializeAsAny
 
 
 class Document(BaseModel):
@@ -38,7 +38,7 @@ class Document(BaseModel):
 
 
 class Response(Document):
-    evidences: Optional[List[Document]] = None
+    evidences: SerializeAsAny[Optional[List[Document]]] = None
 
     def as_langchain_document(self, ignore_extras: bool = False) -> LangchainDocument:
         document = super().as_langchain_document(ignore_extras=ignore_extras)
