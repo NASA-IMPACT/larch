@@ -18,6 +18,8 @@ QA_DOCUMENTS_PROMPT = PromptTemplate(
 
 SQL_AGENT_QUERY_AUGMENTATION_PROMPT = """1. Use both the `similarity(<column_name>, <value>) >={threshold}` function as well as `ILIKE` operator for text matching.
 2. Condolidate the final query based on both the operations removing any duplicate rows.
-3. If a proper response is not generated, just say 'I can't answer.', and nothing else.
-4. Strictly, avoid unwanted answers that are not in the result. Avoid generating generic responses unrelated to the data.
+3. If the question is about finding solutions for satellites, look for `instrument`, `platform` columns for text matching and unify them.
+4. If a proper response is not generated, just say 'I can't answer.', and nothing else.
+5. Strictly, avoid unwanted answers that are not in the result. Avoid generating generic responses unrelated to the data.
+6. Strictly avoid outputing sql query as the final answer.
 """
