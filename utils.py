@@ -4,7 +4,7 @@ import json
 import multiprocessing
 import re
 from collections.abc import MutableMapping
-from typing import Dict, List, Optional, TypeVar, Union
+from typing import Dict, Generator, List, Optional, TypeVar, Union
 
 from langchain.document_loaders import (
     PyPDFLoader,
@@ -113,6 +113,15 @@ def remove_duplicate_documents(documents: List[Document]) -> List[Document]:
             unique_documents.append(document)
             _checks.add(text)
     return unique_documents
+
+
+def batch_iterator(iterable, n=1) -> Generator:
+    """
+    Creates a generator for batches
+    """
+    l = len(iterable)
+    for ndx in range(0, l, n):
+        yield iterable[ndx : min(ndx + n, l)]
 
 
 class LangchainDocumentParser:

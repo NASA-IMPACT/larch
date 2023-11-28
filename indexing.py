@@ -13,21 +13,22 @@ from langchain.chains import RetrievalQA
 from langchain.chains.base import Chain
 from langchain.chains.question_answering import load_qa_chain
 from langchain.chat_models import ChatOpenAI
-from langchain.document_loaders import PyPDFLoader
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.schema.embeddings import Embeddings
 from langchain.schema.retriever import BaseRetriever
 from langchain.text_splitter import TextSplitter
-from langchain.vectorstores import FAISS, VectorStore
+from langchain.vectorstores import FAISS, PGVector, VectorStore
+from langchain.vectorstores.pgvector import (
+    DEFAULT_DISTANCE_STRATEGY as PG_DEFAULT_DISTANCE_STRATEGY,
+)
 from loguru import logger
-from paperqa import Doc, Text
+from paperqa import Text
 from pydantic import BaseModel
 from pynequa import QueryParams, Sinequa
 from tqdm import tqdm
 
 from .metadata import AbstractMetadataExtractor, InstructorBasedOpenAIMetadataExtractor
 from .paperqa_patched.docs import Docs
-from .paperqa_patched.readers import read_doc_patched
 from .processors import TextProcessor
 from .structures import Document, LangchainDocument, Response
 from .utils import (
@@ -286,8 +287,40 @@ class PaperQADocumentIndexer(DocumentIndexer):
 
 class LangchainDocumentIndexer(DocumentIndexer):
     """
-    Uses paperqa indexing pipeline to index documents provided that we have a list of paths.
+    Uses custom langchain indexing pipeline to index documents provided that we have a list of paths.
+
+    if provided `vector_store_params` is empty, a new default `vector_store` is initialized
+    while calling `LangchainDocumentIndexer.load_index(...)`.
+
+    The default class for the vector store is controlled by
+    `LangchainDocumentIndexer.vector_store_params["default_vector_store_cls"]`.
+
+    Usages:
+        .. code-block: python
+
+            from larch.indexing import LangchainDocumentIndexer
+
+            # 1. directly using VectorStore object
+            document_indexer = LangchainDocumentIndexer(
+                llm=ChatOpenAI(model=model, temperature=0.0),
+                text_preprocessor=text_processor,
+                vector_store=<vector_store>,
+                # vector_store=FAISS.load_local("../tmp/vectorstore", embeddings=embedder, index_name="mistral_index"),
+                debug=True,
+            )
+
+            # 2. Using params
+            document_indexer = LangchainDocumentIndexer(
+                llm=ChatOpenAI(model=model, temperature=0.0),
+                text_preprocessor=text_processor,
+                vector_store_params=dict(pg_collection_name="vector_test", pg_connection_string="postgresql://postgresql@localhost:5432/vector_test"),
+                #vector_store_params=dict(store_dir="../tmp/vectorstore/", index_name="faiss_test"),
+                debug=True,
+            )
+
     """
+
+    _DEFAULT_VECTOR_STORE_CLS = FAISS
 
     def __init__(
         self,
@@ -297,6 +330,7 @@ class LangchainDocumentIndexer(DocumentIndexer):
         vector_store: Optional[VectorStore] = None,
         text_preprocessor: Optional[Callable] = None,
         text_splitter: Optional[TextSplitter] = None,
+        vector_store_params: Optional[Dict] = None,
         debug: bool = False,
     ) -> None:
         super().__init__(docs=docs, text_preprocessor=text_preprocessor, debug=debug)
@@ -305,17 +339,50 @@ class LangchainDocumentIndexer(DocumentIndexer):
         self.embeddings = embeddings or OpenAIEmbeddings(client=None)
         self.vector_store = vector_store
         self.text_splitter = text_splitter
+        self.vector_store_params = vector_store_params or {}
+
+        # create/build
+        # If this still gives you None store,
+        # A default new object is created at `load_index` time controleld by
+        # `vector_store_params["default_vector_store_cls"]` to invoke its
+        # `from_documents(...)` classmethod.
+        self.vector_store = self._get_vector_store(self.vector_store_params)
 
     @property
     def docs(self) -> List[str]:
         _paths = []
-        if self.vector_store is not None:
-            _paths = map(
-                lambda x: x.metadata.get("source", None),
-                self.vector_store.docstore._dict.values(),
-            )
+        try:
+            if self.vector_store is not None:
+                _paths = map(lambda x: x.source, self.doc_store.values())
+        except AttributeError:
+            _paths = self._docs
         _paths = filter(None, _paths)
         return list(set(_paths))
+
+    def _get_vector_store(self, params) -> Type[VectorStore]:
+        """
+        Obfuscated code that basically initializes the vetor store
+        based on params if the provided vector_store object is None.
+        """
+        if self.vector_store is not None:
+            return self.vector_store
+        # check for non-pg first
+        if "store_dir" in params and "index_name" in params:
+            return params.get("vector_store_cls", FAISS).load_local(
+                params["store_dir"],
+                self.embeddings,
+                params["index_name"],
+            )
+        if "pg_collection_name" in params and "pg_connection_string" in params:
+            return PGVector(
+                collection_name=params["pg_collection_name"],
+                connection_string=params["pg_connection_string"],
+                distance_strategy=params.get(
+                    "pg_distance_strategy",
+                    PG_DEFAULT_DISTANCE_STRATEGY,
+                ),
+                embedding_function=self.embeddings,
+            )
 
     def qa_chain(self, k: int = 15, **kwargs) -> Type[Chain]:
         search_params = kwargs.copy()
@@ -329,15 +396,51 @@ class LangchainDocumentIndexer(DocumentIndexer):
             return_source_documents=True,
         )
 
+    def _get_pgvector_doc_store(self) -> Dict[str, Document]:
+        table_name = self.vector_store.EmbeddingStore.__tablename__
+        store = {}
+        for row in self.vector_store._conn.execute(
+            f"SELECT uuid, document, cmetadata from {table_name};",
+        ):
+            uuid = row[0]
+            document = row[1]
+            metadata = row[2]
+            store[uuid] = Document(
+                text=document,
+                page=metadata.get("page"),
+                source=metadata.get("source"),
+            )
+        return store
+
+    def _get_faiss_doc_store(self) -> Dict[str, Document]:
+        if self.vector_store is None:
+            return {}
+        store = {}
+        for uuid, doc in self.vector_store.docstore._dict.items():
+            store[uuid] = Document.from_langchain_document(doc)
+        return store
+
     @property
-    def doc_store(self):
-        return self.vector_store.docstore if self.vector_store is not None else None
+    def doc_store(self) -> Dict[str, Document]:
+        """
+        This generates a consistent dict structure
+        no matter what vector store is used.
+        Key is uuid of the chunk and the value is the
+        chunk information (object initialized at `larch.structures.Document`)
+        """
+        store = {}
+        if isinstance(self.vector_store, FAISS):
+            store = self._get_faiss_doc_store()
+        elif isinstance(self.vector_store, PGVector):
+            store = self._get_pgvector_doc_store()
+        return store
 
     @property
     def num_chunks(self) -> int:
-        if self.doc_store is None:
-            return 0
-        return len(self.doc_store._dict.values())
+        """
+        Returns total number of chunks in the vector store.
+        """
+        return len(self.doc_store)
 
     def index_documents(self, paths: List[str], **kwargs) -> LangchainDocumentIndexer:
         store_dir = kwargs.get("store_dir")
@@ -357,7 +460,11 @@ class LangchainDocumentIndexer(DocumentIndexer):
         # build index
         _prev_chunks_num = self.num_chunks
         if self.vector_store is None:
-            self.vector_store = FAISS.from_documents(docs, self.embeddings)
+            vs_cls = self.vector_store_params.get(
+                "default_vector_store_cls",
+                self._DEFAULT_VECTOR_STORE_CLS,
+            )
+            self.vector_store = vs_cls.from_documents(docs, self.embeddings)
         else:
             self.vector_store.add_documents(docs)
 
@@ -415,7 +522,8 @@ class LangchainDocumentIndexer(DocumentIndexer):
         store_dir: str = "tmp/",
         index_name: str = "index",
     ) -> LangchainDocumentIndexer:
-        self.vector_store.save_local(store_dir, index_name)
+        if not isinstance(self.vector_store, PGVector):
+            self.vector_store.save_local(store_dir, index_name)
         return self
 
     def load_index(
@@ -425,11 +533,14 @@ class LangchainDocumentIndexer(DocumentIndexer):
         embeddings: "Embeddings",
         index_name: str = "index",
     ) -> LangchainDocumentIndexer:
-        self.vector_store = vector_store_cls.load_local(
-            store_dir,
-            embeddings,
-            index_name,
-        )
+        if not isinstance(vector_store_cls, PGVector):
+            self.vector_store = self._get_vector_store(
+                dict(
+                    store_dir=store_dir,
+                    index_name=index_name,
+                    vector_store_cls=vector_store_cls,
+                ),
+            )
         return self
 
 

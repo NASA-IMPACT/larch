@@ -384,6 +384,8 @@ class MultiRetrieverSearchEngine(AbstractSearchEngine):
         + " and coherent based on the answers from both the sources."
         + " Don't give response that doesn't belong within the generated answers."
         + " Be as concise as possible to give the final answer."
+        + " If there are conflicting information from all the sources,"
+        + " use the naswer from SQLAgentSearchEngine as high priority if possible."
     )
 
     class RetrieverWrapper(BaseRetriever):
