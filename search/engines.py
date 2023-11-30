@@ -390,6 +390,7 @@ class MultiRetrieverSearchEngine(AbstractSearchEngine):
 
     class RetrieverWrapper(BaseRetriever):
         search_engine: AbstractSearchEngine
+        top_k: int = 5
         response: Optional[Response] = None
 
         def _get_relevant_documents(
@@ -399,8 +400,7 @@ class MultiRetrieverSearchEngine(AbstractSearchEngine):
             run_manager: CallbackManagerForRetrieverRun,
             **kwargs,
         ) -> List[LangchainDocument]:
-            self.response = self.search_engine(query, **kwargs)
-            # return LangchainDocument(page_content=self.response.text)
+            self.response = self.search_engine(query, top_k=self.top_k, **kwargs)
             return self.response.as_langchain_document(ignore_extras=True)
 
     def __init__(
@@ -429,11 +429,15 @@ class MultiRetrieverSearchEngine(AbstractSearchEngine):
         )
 
     @staticmethod
-    def _get_retrievers(*engines: AbstractSearchEngine) -> List[RetrieverWrapper]:
+    def _get_retrievers(
+        *engines: AbstractSearchEngine,
+        top_k: int = 5,
+    ) -> List[RetrieverWrapper]:
         return list(
             map(
                 lambda engine: MultiRetrieverSearchEngine.RetrieverWrapper(
                     search_engine=engine,
+                    top_k=top_k,
                 ),
                 engines,
             ),
@@ -464,10 +468,10 @@ class MultiRetrieverSearchEngine(AbstractSearchEngine):
             {**retriever_chain, **{"question": lambda x: x["question"]}} | prompt | llm
         )
 
-    def query(self, query: str, **kwargs) -> Response:
+    def query(self, query: str, top_k: int = 5, **kwargs) -> Response:
         # retrievers are made stateful to cache responses
         # So, need to build at runtime
-        retrievers = self._get_retrievers(*self.engines)
+        retrievers = self._get_retrievers(*self.engines, top_k=top_k)
 
         chain = self._build_chain(*retrievers, prompt=self.prompt, llm=self.llm)
 

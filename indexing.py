@@ -499,6 +499,7 @@ class LangchainDocumentIndexer(DocumentIndexer):
             return []
         filter_by = remove_nulls(kwargs.get("filter_by", {}))
         if self.debug:
+            logger.debug(f"top_k={top_k}")
             logger.debug(f"filter_by = {filter_by}")
 
         lang_docs = self.vector_store.similarity_search(
