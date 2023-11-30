@@ -401,16 +401,14 @@ class LangchainDocumentIndexer(DocumentIndexer):
         table_name = self.vector_store.EmbeddingStore.__tablename__
         sql_query = f"SELECT uuid, document, cmetadata from {table_name};"
 
-        # get collection uuid to filter
-        collection_id = None
+        # filter by collection id
         with Session(self.vector_store._conn) as session:
-            collection_id = self.vector_store.get_collection(session).uuid
-
-        if collection_id is not None:
-            sql_query = (
-                f"SELECT uuid, document, cmetadata from {table_name}"
-                + f" where collection_id='{collection_id}';"
-            )
+            collection = self.vector_store.get_collection(session)
+            if collection is not None:
+                sql_query = (
+                    f"SELECT uuid, document, cmetadata from {table_name}"
+                    + f" where collection_id='{collection.uuid}';"
+                )
 
         # create the dictionary store
         store = {}
