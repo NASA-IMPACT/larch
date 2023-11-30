@@ -25,6 +25,7 @@ from loguru import logger
 from paperqa import Text
 from pydantic import BaseModel
 from pynequa import QueryParams, Sinequa
+from sqlalchemy.orm import Session
 from tqdm import tqdm
 
 from .metadata import AbstractMetadataExtractor, InstructorBasedOpenAIMetadataExtractor
@@ -398,10 +399,22 @@ class LangchainDocumentIndexer(DocumentIndexer):
 
     def _get_pgvector_doc_store(self) -> Dict[str, Document]:
         table_name = self.vector_store.EmbeddingStore.__tablename__
+        sql_query = f"SELECT uuid, document, cmetadata from {table_name};"
+
+        # get collection uuid to filter
+        collection_id = None
+        with Session(self.vector_store._conn) as session:
+            collection_id = self.vector_store.get_collection(session).uuid
+
+        if collection_id is not None:
+            sql_query = (
+                f"SELECT uuid, document, cmetadata from {table_name}"
+                + f" where collection_id='{collection_id}';"
+            )
+
+        # create the dictionary store
         store = {}
-        for row in self.vector_store._conn.execute(
-            f"SELECT uuid, document, cmetadata from {table_name};",
-        ):
+        for row in self.vector_store._conn.exec_driver_sql(sql_query):
             uuid = row[0]
             document = row[1]
             metadata = row[2]
