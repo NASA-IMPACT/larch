@@ -191,16 +191,27 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
     runs the query to generate response text. Use this whenever there's a
     complex query that SQL syntax can support such as grouping, ordering,
     counting, etc.
+
+    Args:
+        db_uri (str): Database URI to connect to the database
+        tables (list): List of tables to include in the database
+        llm (BaseLanguageModel): Language model to use for SQL agent
+        prompt_prefix (str): Prompt prefix to use for SQL agent
+        sql_fuzzy_threshold (float): Threshold to use for SQL agent
+        query_augmentation_prompt (str): Prompt to use for query augmentation
+        railguard_response (bool): railguard response or not
+        debug (bool): Debug mode
     """
 
     def __init__(
         self,
         db_uri: str,
         tables: list,
-        llm: Optional = None,
+        llm: Optional[BaseLanguageModel] = None,
         prompt_prefix: Optional[str] = None,
         sql_fuzzy_threshold: float = 0.75,
         query_augmentation_prompt: Optional[str] = None,
+        railguard_response: bool = False,
         debug: bool = False,
     ) -> None:
         super().__init__(debug=debug)
@@ -209,10 +220,12 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         )
 
         self.llm = llm or ChatOpenAI(temperature=0, model="gpt-3.5-turbo-0613")
+        self.tables = tables
         self.db = SQLDatabase.from_uri(db_uri, include_tables=tables)
 
         self.prompt_prefix = prompt_prefix or SQL_PREFIX
         self.sql_fuzzy_threshold = sql_fuzzy_threshold
+        self.railguard_response = railguard_response
 
         self.agent_executor = create_sql_agent(
             llm=self.llm,
@@ -231,7 +244,67 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         )
         return f"Query: {query}\n" + augmentation_prompt
 
+    def prevent_response_leakage(self, response: str) -> str:
+        """
+        prevent_response_leakage is a method to railguard the
+        agent from leaking table information.
+
+        Args:
+            response (str): response text
+
+        Returns:
+            str: railguarded response
+        """
+        default_response = "Answer could not be found."
+        tables = self.tables
+
+        restricted_keywords = [
+            "table_information",
+            "Let's query the schema",
+            "Here is the query",
+        ]
+
+        restricted_keywords_pattern = re.compile(
+            r"\b(" + "|".join(restricted_keywords) + r")\b",
+            re.IGNORECASE,
+        )
+        sql_query_pattern = re.compile(
+            r"SELECT \* FROM \w+ WHERE .*",
+            re.IGNORECASE,
+        )
+
+        # look for restricted keywords and sql query statement
+        if restricted_keywords_pattern.search(
+            response,
+        ) or sql_query_pattern.search(response):
+
+            if self.debug:
+                logger.debug(
+                    """Restricted keywords or sql pattern
+                             found in response. Railguarding...""",
+                )
+            return default_response
+
+        # look for table information
+        if len(tables) != 0:
+            table_text = (
+                ", ".join(f"`{table}`" for table in tables[:-1])
+                + (", and " if len(tables) > 1 else "")
+                + f"`{tables[-1]}`"
+            )
+            tables_pattern = re.compile(rf"{table_text}", re.IGNORECASE)
+            if tables_pattern.search(response):
+                if self.debug:
+                    logger.debug(
+                        """Table information found in response.
+                                 Railguarding...""",
+                    )
+                return default_response
+
+        return response
+
     def query(self, query: str, **kwargs) -> Response:
+
         query = SQLAgentSearchEngine.augment_query(
             query,
             self.query_augmentation_prompt,
@@ -241,6 +314,10 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         if self.debug:
             logger.debug(f"Query = {query}")
             logger.debug(f"Result={result}")
+
+        if self.railguard_response:
+            result = self.prevent_response_leakage(result)
+
         return Response(text=result, source=self.__classname__)
 
 
