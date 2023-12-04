@@ -203,10 +203,23 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         debug (bool): Debug mode
     """
 
+    _RESTRICTED_KEYWORDS = [
+        "table_information",
+        "Let's query the schema",
+        "Here is the query",
+    ]
+
+    _DEFAULT_RESPONSE = "Answer could not be found."
+
+    _SQL_QUERY_PATTERN = re.compile(
+        r"SELECT \* FROM \w+ WHERE .*",
+        re.IGNORECASE,
+    )
+
     def __init__(
         self,
         db_uri: str,
-        tables: list,
+        tables: Optional[List[str]] = None,
         llm: Optional[BaseLanguageModel] = None,
         prompt_prefix: Optional[str] = None,
         sql_fuzzy_threshold: float = 0.75,
@@ -244,6 +257,61 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         )
         return f"Query: {query}\n" + augmentation_prompt
 
+    def _check_restricted_keywords(self, response: str) -> bool:
+        """
+        _check_restricted_keywords is a method to check if the response
+        has restricted keywords or not.
+
+        Args:
+            response (str): response text
+
+        Returns:
+            bool: True if restricted keywords are found, False otherwise
+        """
+        restricted_keywords_pattern = re.compile(
+            r"\b(" + "|".join(self._RESTRICTED_KEYWORDS) + r")\b",
+            re.IGNORECASE,
+        )
+
+        return restricted_keywords_pattern.search(response)
+
+    def _check_sql_query(self, response: str) -> bool:
+        """
+        _check_sql_query is a method to check if the response
+        has SQL query statement in it or not.
+
+        Args:
+            response (str): response text
+
+        Returns:
+            bool: True if sql query statement is found, False otherwise
+        """
+        return self._SQL_QUERY_PATTERN.search(response)
+
+    def _check_table_information(self, response: str) -> bool:
+        """
+        _check_table_information is a method to check if the response
+        is leaking table information or not.
+
+        Args:
+            response (str): response text
+
+        Returns:
+            bool: True if table information is found, False otherwise
+        """
+        tables = self.tables
+        if len(tables) == 0:
+            return False
+
+        table_text = (
+            ", ".join(f"`{table}`" for table in tables[:-1])
+            + (", and " if len(tables) > 1 else "")
+            + f"`{tables[-1]}`"
+        )
+        tables_pattern = re.compile(rf"{table_text}", re.IGNORECASE)
+
+        return tables_pattern.search(response)
+
     def prevent_response_leakage(self, response: str) -> str:
         """
         prevent_response_leakage is a method to railguard the
@@ -255,51 +323,24 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         Returns:
             str: railguarded response
         """
-        default_response = "Answer could not be found."
-        tables = self.tables
 
-        restricted_keywords = [
-            "table_information",
-            "Let's query the schema",
-            "Here is the query",
-        ]
-
-        restricted_keywords_pattern = re.compile(
-            r"\b(" + "|".join(restricted_keywords) + r")\b",
-            re.IGNORECASE,
-        )
-        sql_query_pattern = re.compile(
-            r"SELECT \* FROM \w+ WHERE .*",
-            re.IGNORECASE,
-        )
-
-        # look for restricted keywords and sql query statement
-        if restricted_keywords_pattern.search(
-            response,
-        ) or sql_query_pattern.search(response):
-
+        if (
+            self._check_restricted_keywords(
+                response,
+            )
+            or self._check_sql_query(
+                response,
+            )
+            or self._check_table_information(
+                response,
+            )
+        ):
             if self.debug:
                 logger.debug(
-                    """Restricted keywords or sql pattern
+                    """Restricted information
                              found in response. Railguarding...""",
                 )
-            return default_response
-
-        # look for table information
-        if len(tables) != 0:
-            table_text = (
-                ", ".join(f"`{table}`" for table in tables[:-1])
-                + (", and " if len(tables) > 1 else "")
-                + f"`{tables[-1]}`"
-            )
-            tables_pattern = re.compile(rf"{table_text}", re.IGNORECASE)
-            if tables_pattern.search(response):
-                if self.debug:
-                    logger.debug(
-                        """Table information found in response.
-                                 Railguarding...""",
-                    )
-                return default_response
+            return self._DEFAULT_RESPONSE
 
         return response
 

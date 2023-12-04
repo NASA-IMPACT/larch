@@ -22,4 +22,5 @@ SQL_AGENT_QUERY_AUGMENTATION_PROMPT = """1. Use both the `similarity(<column_nam
 4. If a proper response is not generated, just say 'I can't answer.', and nothing else.
 5. Strictly, avoid unwanted answers that are not in the result. Avoid generating generic responses unrelated to the data.
 6. Strictly avoid outputing sql query as the final answer.
+7. Ignore tables "langchain_pg_collection" and "langchain_pg_embedding" in the database.
 """
