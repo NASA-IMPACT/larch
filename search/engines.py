@@ -323,7 +323,6 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         Returns:
             str: railguarded response
         """
-
         if (
             self._check_restricted_keywords(
                 response,
@@ -357,7 +356,12 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
             logger.debug(f"Result={result}")
 
         if self.railguard_response:
-            result = self.prevent_response_leakage(result)
+            try:
+                result = self.prevent_response_leakage(result)
+            except Exception as e:
+                logger.warning(
+                    f"Error while railguarding response for query: {query} with error: {e}",
+                )
 
         return Response(text=result, source=self.__classname__)
 
