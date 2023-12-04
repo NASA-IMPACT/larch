@@ -233,12 +233,12 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         )
 
         self.llm = llm or ChatOpenAI(temperature=0, model="gpt-3.5-turbo-0613")
-        self.tables = tables
         self.db = SQLDatabase.from_uri(db_uri, include_tables=tables)
 
         self.prompt_prefix = prompt_prefix or SQL_PREFIX
         self.sql_fuzzy_threshold = sql_fuzzy_threshold
         self.railguard_response = railguard_response
+        self.tables = tables
 
         self.agent_executor = create_sql_agent(
             llm=self.llm,
@@ -301,7 +301,7 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         """
         tables = self.tables
         if len(tables) == 0:
-            return False
+            tables = self.db.get_usable_table_names()
 
         table_text = (
             ", ".join(f"`{table}`" for table in tables[:-1])
