@@ -207,6 +207,8 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         "table_information",
         "Let's query the schema",
         "Here is the query",
+        "The tables in the database",
+        "Here is the sql query",
     ]
 
     _DEFAULT_RESPONSE = "Answer could not be found."
@@ -273,7 +275,11 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
             re.IGNORECASE,
         )
 
-        return restricted_keywords_pattern.search(response)
+        matched_restricted_keywords = restricted_keywords_pattern.search(response)
+        if self.debug:
+            logger.debug(f"Matched restricted keywords: {matched_restricted_keywords}")
+
+        return bool(matched_restricted_keywords)
 
     def _check_sql_query(self, response: str) -> bool:
         """
@@ -286,7 +292,10 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         Returns:
             bool: True if sql query statement is found, False otherwise
         """
-        return self._SQL_QUERY_PATTERN.search(response)
+        match_sql_query = self._SQL_QUERY_PATTERN.search(response)
+        if self.debug:
+            logger.debug(f"Matched SQL query: {match_sql_query}")
+        return bool(match_sql_query)
 
     def _check_table_information(self, response: str) -> bool:
         """
@@ -299,18 +308,22 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         Returns:
             bool: True if table information is found, False otherwise
         """
-        tables = self.tables
-        if len(tables) == 0:
-            tables = self.db.get_usable_table_names()
+        tables = self.tables or self.db.get_usable_table_names()
 
         table_text = (
-            ", ".join(f"`{table}`" for table in tables[:-1])
+            ", ".join(f"{table}" for table in tables[:-1])
             + (", and " if len(tables) > 1 else "")
-            + f"`{tables[-1]}`"
+            + f"{tables[-1]}"
         )
         tables_pattern = re.compile(rf"{table_text}", re.IGNORECASE)
 
-        return tables_pattern.search(response)
+        match = tables_pattern.search(response.replace("`", ""))
+        if self.debug:
+            logger.debug(
+                f"Matched table information: {match} with pattern: {tables_pattern}",
+            )
+
+        return bool(match)
 
     def prevent_response_leakage(self, response: str) -> str:
         """
