@@ -513,14 +513,14 @@ class MultiRetrieverSearchEngine(AbstractSearchEngine):
 
     _SYSTEM_PROMPT = (
         "You are very accurate information retriever."
-        + " Use the information from the below two sources to answer any query."
+        + " Use the information from the sources below to answer any query."
         + " Only answer based on the provided sources."
         + " Try best to consolidate the answer that is accurate"
-        + " and coherent based on the answers from both the sources."
+        + " and coherent based on the answers from all the sources."
         + " Don't give response that doesn't belong within the generated answers."
         + " Be as concise as possible to give the final answer."
-        + " If there are conflicting information from all the sources,"
-        + " use the naswer from SQLAgentSearchEngine as high priority if possible."
+        # + " If there are conflicting information from all the sources,"
+        # + " use the answer from SQLAgentSearchEngine as high priority if possible."
     )
 
     class RetrieverWrapper(BaseRetriever):

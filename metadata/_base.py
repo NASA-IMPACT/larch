@@ -87,6 +87,15 @@ class MetadataValidator(ABC):
 class MetadataEvaluator(ABC):
     """
     A component to evaluate extracted metadata with provided reference
+
+    Args:
+        ```remove_nulls```: ```bool```
+            If enabled, all the empty/null values in the dict are removed
+            recursively
+        ```ignore_case```: ```bool```
+            If enabled, matching is done ignoring the case
+        ```debug```: ```bool```
+            If enabled, debug mode logs are printed.
     """
 
     def __init__(

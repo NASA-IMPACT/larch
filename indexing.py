@@ -97,7 +97,8 @@ class DocumentIndexer(ABC):
         """
         if isinstance(paths, str):
             paths = [paths]
-        return list(filter(lambda path: path not in self.docs, paths))
+        docs = self.docs
+        return list(filter(lambda path: path not in docs, paths))
 
     @property
     def doc_store(self):
