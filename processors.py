@@ -67,6 +67,23 @@ class PIIRemover(TextProcessor):
         return text
 
 
+class NonAlphaNumericRemover(TextProcessor):
+    """
+    Removes non-alpha-numeric characters from the text.
+    """
+
+    _alnum_regex = re.compile(r"(?ui)\W")
+
+    def __init__(self, ignore_case: bool = True, debug: bool = False) -> None:
+        super().__init__(debug=debug)
+        self.ignore_case = bool(ignore_case)
+
+    def process(self, text: str) -> str:
+        if self.ignore_case:
+            text = text.lower()
+        return self._alnum_regex.sub(" ", text).strip()
+
+
 class TextProcessingPipeline(TextProcessor):
     """
     A container to hold provided text processors and execute serially.

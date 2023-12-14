@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 
+import json
 import re
 from abc import ABC, abstractmethod
 from functools import cache
 from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, Union
 
+from loguru import logger
 from pydantic import BaseModel
 
 from ..utils import remove_nulls
 
-T = TypeVar("T", bound=BaseModel)
+T = TypeVar("T", bound=Union[BaseModel, Dict])
 
 
 class AbstractMetadataExtractor(ABC):
@@ -70,16 +72,61 @@ class MetadataValidator(ABC):
     A component to validate values from the extracted metadata.
     """
 
-    def __init__(self, debug: bool = False) -> None:
+    def __init__(self, ignore_case: bool = False, debug: bool = False) -> None:
         self.debug = debug
+        self.ignore_case = ignore_case
+
+    def validate(self, metadata: T, **kwargs) -> T:
+        """
+        Entry-point method that does the validation.
+        Args:
+            ```metadata```: ```Union[BaseModel, dict]```
+                Input metadata which could be a pydantic object
+                or just a dict.
+
+        Returns:
+            Validated metadata.
+            Return type is the same as that of input metadata.
+            If validation error occurs, original data is returned.
+        """
+        metadata_validated = self._get_dict(metadata)
+        try:
+            metadata_validated = self._validate(metadata_validated, **kwargs)
+        except:
+            logger.warning("Validation failed! Returning original metadata.")
+
+        # conform to the original type for return type
+        metadata_validated = (
+            metadata.model_construct(**metadata_validated)
+            if isinstance(metadata, BaseModel)
+            else metadata_validated
+        )
+        return metadata_validated
 
     @abstractmethod
-    def validate(self, metadata: Type[BaseModel], **kwargs) -> Type[BaseModel]:
+    def _validate(self, metadata: dict, **kwargs) -> dict:
         raise NotImplementedError()
+
+    def _get_dict(self, metadata: Any) -> dict:
+        if isinstance(metadata, BaseModel):
+            metadata = metadata.model_dump()
+            if isinstance(metadata, str):
+                metadata = json.loads(metadata)
+        return metadata
 
     def __call__(self, *args, **kwargs) -> Type[BaseModel]:
         """
-        Performs validation for the provided metadata.
+        Performs validation for input metadata.
+        Entry-point method that does the validation.
+        Args:
+            ```metadata```: ```Union[BaseModel, dict]```
+                Input metadata which could be a pydantic object
+                or just a dict.
+
+        Returns:
+            Validated metadata.
+            Return type is the same as that of input metadata.
+            If validation error occurs, original data is returned.
         """
         return self.validate(*args, **kwargs)
 
@@ -110,8 +157,8 @@ class MetadataEvaluator(ABC):
 
     def evaluate(
         self,
-        prediction: Union[Type[BaseModel], Dict],
-        reference: Union[Type[BaseModel], Dict],
+        prediction: T,
+        reference: T,
         **kwargs,
     ) -> Any:
         prediction = self._get_dict(prediction)

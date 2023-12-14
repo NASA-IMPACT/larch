@@ -6,6 +6,7 @@ import re
 from collections.abc import MutableMapping
 from typing import Dict, Generator, List, Optional, TypeVar, Union
 
+import pandas as pd
 from langchain.document_loaders import (
     PyPDFLoader,
     TextLoader,
@@ -122,6 +123,34 @@ def batch_iterator(iterable, n=1) -> Generator:
     l = len(iterable)
     for ndx in range(0, l, n):
         yield iterable[ndx : min(ndx + n, l)]
+
+
+def load_whitelist(
+    filepath,
+    sheet_name: Optional[Union[str, List[str], int]] = None,
+) -> Dict[str, Dict[str, List[str]]]:
+    """
+    Loads whitelist from an excel file.
+
+    Args:
+        ```filepath```: ```str```
+            Path to excel file
+        ```sheet_name```: ```Optional[Union[str, List[str], int]]```
+            Name of the sheet/sheets to load
+    Returns:
+        A dictionary mapping from sheet name to word dictionary
+    """
+    mapper = pd.read_excel(filepath, sheet_name=sheet_name)
+    res = {}
+    for field_key, value_df in mapper.items():
+        res[field_key] = {}
+        cols = value_df.columns
+        for i, row in value_df.iterrows():
+            alternate_vals = filter(None, row[cols])
+            alternate_vals = filter(lambda x: not pd.isna(x), alternate_vals)
+            alternate_vals = list(alternate_vals)
+            res[field_key][row[0]] = alternate_vals
+    return res
 
 
 class LangchainDocumentParser:
