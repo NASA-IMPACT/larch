@@ -10,6 +10,7 @@ import pandas as pd
 from langchain.document_loaders import (
     PyPDFLoader,
     TextLoader,
+    UnstructuredURLLoader,
     UnstructuredWordDocumentLoader,
 )
 from langchain.output_parsers import PydanticOutputParser
@@ -154,23 +155,48 @@ def load_whitelist(
 
 
 class LangchainDocumentParser:
+    """
+    A utility parser wrapper around langchain different loaders.
+
+    Usage:
+
+        .. code-block: python
+
+            from larch.utils import LangchainDocumentParser
+
+            sources = [
+                <local_path_1>,
+                <local_path_2>,
+                ...
+                <url_1>,
+                ...
+            ]
+            documents = LangchainDocumentParser()(sources)
+    """
+
     def __init__(
         self,
         text_splitter: Optional = None,
         docx_loader_cls=UnstructuredWordDocumentLoader,
+        url_loader_cls=UnstructuredURLLoader,
     ) -> None:
         self.text_splitter = text_splitter
         self.docx_loader_cls = docx_loader_cls
+        self.url_loader_cls = url_loader_cls
 
     def parse_pdf(self, path: str) -> List[LangchainDocument]:
         docs = PyPDFLoader(path).load()
         return self._split_text(docs)
 
-    def parse_docx(self, path: str):
+    def parse_docx(self, path: str) -> List[LangchainDocument]:
         docs = self.docx_loader_cls(path).load()
         return self._split_text(docs)
 
-    def parse_txt(self, path: str):
+    def parse_url(self, path: str) -> List[LangchainDocument]:
+        docs = self.url_loader_cls(urls=[path]).load()
+        return self._split_text(docs)
+
+    def parse_txt(self, path: str) -> List[LangchainDocument]:
         docs = TextLoader(path).load()
         return self._split_text(docs)
 
@@ -182,16 +208,25 @@ class LangchainDocumentParser:
             _parse_fn = self.parse_docx
         elif LangchainDocumentParser.is_text_file(path):
             _parse_fn = self.parse_txt
+        elif LangchainDocumentParser.is_url(path):
+            _parse_fn = self.parse_url
         return _parse_fn(path)
 
-    def is_pdf(path: str):
+    @staticmethod
+    def is_pdf(path: str) -> bool:
         return path.endswith((".pdf", ".PDF"))
 
-    def is_docx(path: str):
+    @staticmethod
+    def is_docx(path: str) -> bool:
         return path.endswith(".docx")
 
-    def is_text_file(path: str):
+    @staticmethod
+    def is_text_file(path: str) -> bool:
         return path.endswith((".txt", ".md", ".markdown"))
+
+    @staticmethod
+    def is_url(path: str) -> bool:
+        return path.startswith(("http://", "https://", "www."))
 
     def _split_text(self, docs):
         if self.text_splitter is not None:
