@@ -1,22 +1,26 @@
 from abc import ABC, abstractmethod
-
 from typing import Any, List, Optional
+
 from langchain.base_language import BaseLanguageModel
 from langchain.chat_models import ChatOpenAI
 
 from ..schema import SQLTemplate
 
+
 class SQLTemplateMatcher(ABC):
     """
     SQLTemplateMatcher is a base class for all SQL based template matchers.
     """
-    def __init__(self,
-                templates: List[SQLTemplate],
-                 similarity_threshold: float = 0.4,
-                 debug: bool = False) -> None:
+
+    def __init__(
+        self,
+        templates: List[SQLTemplate],
+        similarity_threshold: float = 0.4,
+        debug: bool = False,
+    ) -> None:
         self.templates = templates
         self.similarity_threshold = similarity_threshold
-        self.debug=debug
+        self.debug = debug
 
     @abstractmethod
     def match(self, query: str, top_k=1, **kwargs) -> List[str]:
@@ -30,7 +34,6 @@ class SQLTemplateMatcher(ABC):
             A list of top-k templates that match the query with entity substitution.
         """
         raise NotImplementedError()
-
 
     def __call__(self, *args: Any, **kwds: Any) -> List[str]:
         return self.match(*args, **kwds)
@@ -46,12 +49,18 @@ class FuzzySQLTemplateMatcher(SQLTemplateMatcher):
         templates: A list of SQL templates.
         similarity_threshold: The similarity threshold to be used for fuzzy matching.
     """
-    def __init__(self, templates: List[SQLTemplate],
-                 similarity_threshold: float = 0.4,
-                 debug: bool = False) -> None:
-        super().__init__(templates=templates,
-                         similarity_threshold=similarity_threshold,
-                         debug = debug)
+
+    def __init__(
+        self,
+        templates: List[SQLTemplate],
+        similarity_threshold: float = 0.4,
+        debug: bool = False,
+    ) -> None:
+        super().__init__(
+            templates=templates,
+            similarity_threshold=similarity_threshold,
+            debug=debug,
+        )
 
     def match(self, query: str, top_k=1, **kwargs) -> List[str]:
         pass
@@ -68,18 +77,23 @@ class LLMBasedSQLTemplateMatcher(SQLTemplateMatcher):
         ddl_schema: The DDL schema for available tables.
         similarity_threshold: The similarity threshold to be used for fuzzy matching.
     """
-    def __init__(self, templates: List[SQLTemplate],
-                 llm: BaseLanguageModel,
-                 ddl_schema: Optional[str] = None,
-                 similarity_threshold: float = 0.4,
-                 debug: bool = False) -> None:
+
+    def __init__(
+        self,
+        templates: List[SQLTemplate],
+        llm: Optional[BaseLanguageModel],
+        ddl_schema: Optional[str] = None,
+        similarity_threshold: float = 0.4,
+        debug: bool = False,
+    ) -> None:
         super().__init__(
             templates=templates,
             similarity_threshold=similarity_threshold,
-            debug = debug)
+            debug=debug,
+        )
 
         self.llm = llm or ChatOpenAI(temperature=0.0, model="gpt-3.5-turbo")
         self.ddl_schema = ddl_schema
 
-    def match(self, query: str, top_k = 1, **kwargs) -> List[str]:
+    def match(self, query: str, top_k=1, **kwargs) -> List[str]:
         pass
