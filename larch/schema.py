@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 from instructor import OpenAISchema
 from pydantic import BaseModel, Field, create_model
@@ -79,3 +79,19 @@ class Metadata(BaseModel):
         flat_dict.update(flat_dict.pop("assessment_metadata", {}))
 
         return flat_dict
+
+
+class SQLTemplate(BaseModel):
+    """
+        SQLTemplate represents a SQL template for a given query pattern.
+
+        E.g.:
+        query_pattern: "When did <mission_name> launch?"
+        sql_template: "SELECT date_operational FROM  <table_name> WHERE mission_name ILIKE '%<mission_name>%';"
+
+    """
+    query_pattern: str
+    sql_template: str
+    intent: Optional[str] = None
+    description: Optional[str] = None
+    extras: Optional[Dict[str, Any]] = None
