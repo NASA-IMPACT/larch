@@ -92,5 +92,6 @@ class SQLTemplate(BaseModel):
     """
     query_pattern: str
     sql_template: str
+    intent: Optional[str] = None
     description: Optional[str] = None
     extras: Optional[Dict[str, Any]] = None

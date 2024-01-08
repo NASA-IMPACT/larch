@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 
 from typing import Any, List, Optional
+from langchain.base_language import BaseLanguageModel
+from langchain.chat_models import ChatOpenAI
 
 from ..schema import SQLTemplate
 
@@ -8,7 +10,12 @@ class SQLTemplateMatcher(ABC):
     """
     SQLTemplateMatcher is a base class for all SQL based template matchers.
     """
-    def __init__(self, debug: bool = False) -> None:
+    def __init__(self,
+                templates: List[SQLTemplate],
+                 similarity_threshold: float = 0.4,
+                 debug: bool = False) -> None:
+        self.templates = templates
+        self.similarity_threshold = similarity_threshold
         self.debug=debug
 
     @abstractmethod
@@ -42,10 +49,9 @@ class FuzzySQLTemplateMatcher(SQLTemplateMatcher):
     def __init__(self, templates: List[SQLTemplate],
                  similarity_threshold: float = 0.4,
                  debug: bool = False) -> None:
-        super().__init__(debug = debug)
-
-        self.templates = templates
-        self.similarity_threshold = similarity_threshold
+        super().__init__(templates=templates,
+                         similarity_threshold=similarity_threshold,
+                         debug = debug)
 
     def match(self, query: str, top_k=1, **kwargs) -> List[str]:
         pass
@@ -63,14 +69,17 @@ class LLMBasedSQLTemplateMatcher(SQLTemplateMatcher):
         similarity_threshold: The similarity threshold to be used for fuzzy matching.
     """
     def __init__(self, templates: List[SQLTemplate],
+                 llm: BaseLanguageModel,
                  ddl_schema: Optional[str] = None,
                  similarity_threshold: float = 0.4,
                  debug: bool = False) -> None:
-        super().__init__(debug = debug)
+        super().__init__(
+            templates=templates,
+            similarity_threshold=similarity_threshold,
+            debug = debug)
 
-        self.templates = templates
+        self.llm = llm or ChatOpenAI(temperature=0.0, model="gpt-3.5-turbo")
         self.ddl_schema = ddl_schema
-        self.similarity_threshold = similarity_threshold
 
     def match(self, query: str, top_k = 1, **kwargs) -> List[str]:
         pass
