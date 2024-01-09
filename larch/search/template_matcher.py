@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Any, List, Optional
 from langchain.base_language import BaseLanguageModel
 from langchain.chat_models import ChatOpenAI
+from thefuzz import fuzz
 
 from ..schema import SQLTemplate
 
@@ -54,8 +55,19 @@ class FuzzySQLTemplateMatcher(SQLTemplateMatcher):
                          debug = debug)
 
     def match(self, query: str, top_k=1, **kwargs) -> List[str]:
-        pass
-
+        query = query.lower()
+        # Calculate fuzzy match scores for each template
+        match_scores = [fuzz.token_set_ratio(
+            query, template.query_pattern.lower()) for template in self.templates]
+        # Sort the index according to the best score
+        match_scores = sorted(
+            enumerate(match_scores), key=lambda x: x[1], reverse=True)
+        # Get the best matches if the score is above the threshold
+        best_matches = [self.templates[index] 
+                        for index, score in match_scores
+                          if score >= self.similarity_threshold]
+        return best_matches[:top_k]
+        
 
 class LLMBasedSQLTemplateMatcher(SQLTemplateMatcher):
     """
