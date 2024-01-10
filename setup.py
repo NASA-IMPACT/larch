@@ -31,8 +31,11 @@ setup(
     url="https://github.com/NASA-IMPACT/larch",
     author_email="np0069@uah.edu",
     python_requires=">=3.8",
-    packages=["larch", "larch.metadata", "larch.search", "larch.paperqa_patched"],
+    packages=["larch", "larch.metadata", "larch.search", "larch.indexing"],
     install_requires=required,
+    extras_require={
+        "paperqa": ["paper-qa"],
+    },
     classifiers=[
         "Intended Audience :: Education",
         "Intended Audience :: Science/Research",
