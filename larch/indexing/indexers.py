@@ -20,9 +20,9 @@ from sqlalchemy.orm import Session
 from tqdm import tqdm
 
 from ..metadata import AbstractMetadataExtractor, InstructorBasedOpenAIMetadataExtractor
+from ..structures import Document, LangchainDocument, Response
 from ..utils import remove_nulls
 from ._base import DocumentIndexer
-from .structures import Document, LangchainDocument, Response
 
 
 class LangchainDocumentIndexer(DocumentIndexer):
@@ -306,12 +306,12 @@ class DocumentMetadataIndexer(DocumentIndexer):
         self,
         schema: Type[BaseModel],
         *,
-        text_preprocessor: Optional[Callable] = None,
+        text_processor: Optional[Callable] = None,
         metadata_extractor: Type[AbstractMetadataExtractor] = None,
         skip_errors: bool = False,
         debug: bool = False,
     ) -> None:
-        super().__init__(debug=debug, text_preprocessor=text_preprocessor)
+        super().__init__(debug=debug, text_processor=text_processor)
         self.metadata_extractor = (
             metadata_extractor
             or InstructorBasedOpenAIMetadataExtractor(

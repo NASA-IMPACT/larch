@@ -13,10 +13,10 @@ from loguru import logger
 from paperqa import Text
 from tqdm import tqdm
 
+from ..structures import Document, Response
 from ..utils import remove_duplicate_documents, remove_nulls
 from ._base import DocumentIndexer
 from .paperqa_patched.docs import Docs
-from .structures import Document, Response
 
 
 class PaperQADocumentIndexer(DocumentIndexer):
