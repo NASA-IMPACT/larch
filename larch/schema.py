@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
 
-
-class SQLTemplate(BaseModel):
+@dataclass
+class SQLTemplate:
     """
     SQLTemplate represents a SQL template for a given query pattern.
 
@@ -13,7 +13,8 @@ class SQLTemplate(BaseModel):
     sql_template: "SELECT date_operational FROM  <table_name> WHERE mission_name ILIKE '%<mission_name>%';"
     """
 
-    class Example(BaseModel):
+    @dataclass
+    class Example:
         """
         Example represents an example related to the SQL template.
 

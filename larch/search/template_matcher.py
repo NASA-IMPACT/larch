@@ -1,5 +1,6 @@
 import re
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from typing import Any, List, Optional
 
 from langchain.base_language import BaseLanguageModel
@@ -66,7 +67,7 @@ class FuzzySQLTemplateMatcher(SQLTemplateMatcher):
 
     def fill_template(self, template: SQLTemplate, query: str) -> Optional[SQLTemplate]:
         """
-        Fill the template with the query.
+        Fill the template with the kwargs extracted from the query.
 
         Args:
             template: The SQL template to fill.
@@ -74,27 +75,38 @@ class FuzzySQLTemplateMatcher(SQLTemplateMatcher):
         Returns:
             The filled template if the query matches the template, otherwise None.
         """
+        # Make a copy of the template to avoid modifying the original template
+        template = deepcopy(template)
         # Extract the entities from the query
         pattern = re.compile(template.query_pattern, re.IGNORECASE)
         match = pattern.match(query)
         if match:
-            # Make a copy of the template to avoid modifying the original template
-            template = template.model_copy()
-            comparing_value = match.groups()[0]
+            matched_kwargs = match.groupdict()
             # Substitute the entities in the SQL template
             template.sql_pattern = template.sql_pattern.format(
-                comparing_value=comparing_value,
+                **matched_kwargs,
                 similarity_threshold=self.similarity_threshold,
             )
-            return template
+            template.extras = {"entities": matched_kwargs, "matched": True}
         else:
-            return None
+            template.extras = {"matched": False}
 
-    def match(self, query: str, top_k=1, **kwargs) -> List[str]:
+        return template
+
+    def match(self, query: str, top_k=1, **kwargs) -> List[SQLTemplate]:
+        """Match the given query against the templates and return the top-k matched templates.
+
+        Args:
+            query (str): User query to match against the templates.
+            top_k (int, optional): Number of matched templates to return. Defaults to 1.
+
+        Returns:
+            List[SQLTemplate]: List of matched templates.
+        """
         query = query.lower()
         # Calculate fuzzy match scores for each template
         match_scores = [
-            fuzz.token_set_ratio(
+            fuzz.partial_ratio(
                 query,
                 template.query_pattern.lower(),
             )
@@ -152,4 +164,4 @@ class LLMBasedSQLTemplateMatcher(SQLTemplateMatcher):
         self.ddl_schema = ddl_schema
 
     def match(self, query: str, top_k=1, **kwargs) -> List[str]:
-        pass
+        raise NotImplementedError()
