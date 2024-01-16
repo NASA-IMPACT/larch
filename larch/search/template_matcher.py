@@ -65,13 +65,48 @@ class FuzzySQLTemplateMatcher(SQLTemplateMatcher):
             debug=debug,
         )
 
-    def fill_template(self, template: SQLTemplate, query: str) -> Optional[SQLTemplate]:
+    @staticmethod
+    def preprocess_text(text: str) -> List[str]:
+        """
+        Preprocess the text by removing whitespaces and converting to lowercase.
+
+        Args:
+            text: The text to preprocess.
+        Returns:
+            The preprocessed text.
+        """
+        text = re.sub(r"\s+", " ", text)
+        text = text.lower().strip()
+        return text
+
+    def compute_fuzzy_match_score(self, query: str, template_query: str) -> float:
+        """
+        Compute the fuzzy match score between the query and the template query.
+
+        Args:
+            query: The query to match against the template query.
+            template_query: The template query to match against.
+        Returns:
+            The fuzzy match score between the query and the template query.
+        """
+        return fuzz.partial_token_set_ratio(
+            self.preprocess_text(query).split(),
+            self.preprocess_text(template_query).split(),
+        )
+
+    def fill_template(
+        self,
+        template: SQLTemplate,
+        query: str,
+        score: Optional[float] = None,
+    ) -> Optional[SQLTemplate]:
         """
         Fill the template with the kwargs extracted from the query.
 
         Args:
             template: The SQL template to fill.
             query: The query to fill the template with.
+            score: The fuzzy match score between the query and the template query.
         Returns:
             The filled template if the query matches the template, otherwise None.
         """
@@ -87,9 +122,13 @@ class FuzzySQLTemplateMatcher(SQLTemplateMatcher):
                 **matched_kwargs,
                 similarity_threshold=self.similarity_threshold,
             )
-            template.extras = {"entities": matched_kwargs, "matched": True}
+            template.extras = {
+                "entities": matched_kwargs,
+                "matched": True,
+                "score": score,
+            }
         else:
-            template.extras = {"matched": False}
+            template.extras = {"matched": False, "score": score}
 
         return template
 
@@ -103,13 +142,9 @@ class FuzzySQLTemplateMatcher(SQLTemplateMatcher):
         Returns:
             List[SQLTemplate]: List of matched templates.
         """
-        query = query.lower()
         # Calculate fuzzy match scores for each template
         match_scores = [
-            fuzz.partial_ratio(
-                query,
-                template.query_pattern.lower(),
-            )
+            self.compute_fuzzy_match_score(query, template.query_pattern)
             for template in self.templates
         ]
         # Sort the index according to the best score
@@ -120,13 +155,14 @@ class FuzzySQLTemplateMatcher(SQLTemplateMatcher):
         )
         # Get the best matches if the score is above the threshold
         best_matches = [
-            self.templates[index]
+            (self.templates[index], score)
             for index, score in match_scores
             if score >= self.similarity_threshold
         ]
         # Fill the template with the query
         best_matches = [
-            self.fill_template(template, query) for template in best_matches
+            self.fill_template(template, query, score)
+            for template, score in best_matches
         ]
         # Remove None values from the list
         best_matches = [template for template in best_matches if template]
