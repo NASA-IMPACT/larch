@@ -93,9 +93,8 @@ class FuzzySQLTemplateMatcher(SQLTemplateMatcher):
             self.preprocess_text(query).split(),
             self.preprocess_text(template_query).split(),
         )
-        # Normalize the score
-        score = score / 100.0
-        return score
+        # Normalize
+        return round(score / 100.0, 3)
 
     def fill_template(
         self,
