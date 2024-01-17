@@ -223,6 +223,7 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         db_uri: str,
         tables: Optional[List[str]] = None,
         llm: Optional[BaseLanguageModel] = None,
+        toolkit_llm: Optional[BaseLanguageModel] = None,
         prompt_prefix: Optional[str] = None,
         sql_fuzzy_threshold: float = 0.75,
         query_augmentation_prompt: Optional[str] = None,
@@ -235,6 +236,10 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
         )
 
         self.llm = llm or ChatOpenAI(temperature=0, model="gpt-3.5-turbo-0613")
+        self.toolkit_llm = toolkit_llm or OpenAI(
+            temperature=0,
+            model="gpt-3.5-turbo-instruct",
+        )
         self.db = SQLDatabase.from_uri(db_uri, include_tables=tables)
 
         self.prompt_prefix = prompt_prefix or SQL_PREFIX
@@ -244,7 +249,7 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
 
         self.agent_executor = create_sql_agent(
             llm=self.llm,
-            toolkit=SQLDatabaseToolkit(db=self.db, llm=OpenAI(temperature=0)),
+            toolkit=SQLDatabaseToolkit(db=self.db, llm=self.toolkit_llm),
             verbose=self.debug,
             agent_type=AgentType.OPENAI_FUNCTIONS,
             prefix=self.prompt_prefix,
