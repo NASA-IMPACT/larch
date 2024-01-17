@@ -89,10 +89,13 @@ class FuzzySQLTemplateMatcher(SQLTemplateMatcher):
         Returns:
             The fuzzy match score between the query and the template query.
         """
-        return fuzz.partial_token_set_ratio(
+        score = fuzz.partial_token_set_ratio(
             self.preprocess_text(query).split(),
             self.preprocess_text(template_query).split(),
         )
+        # Normalize the score
+        score = score / 100.0
+        return score
 
     def fill_template(
         self,
