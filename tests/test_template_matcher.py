@@ -18,7 +18,7 @@ class TestFuzzySQLTemplateMatcher:
                 examples=[
                     SQLTemplate.Example(
                         query="Which agencies are interested in using the ICESat-2 satellite?",
-                        sql="SELECT DISTINCT metadata.organization_name FROM metadata JOIN solution ON metadata.id = solution.need_id WHERE solution.platform ILIKE '%icesat-2%' OR similarity(solution.platform, 'icesat-2') > 0.4;",
+                        sql="SELECT DISTINCT metadata.organization_name FROM metadata JOIN solution ON metadata.id = solution.need_id WHERE solution.platform ILIKE '%ICESat-2%' OR similarity(solution.platform, 'ICESat-2') > 0.4;",
                         result=[
                             "Department of the Interior",
                             "Environmental Protection Agency (EPA)",
@@ -33,7 +33,7 @@ class TestFuzzySQLTemplateMatcher:
                 examples=[
                     SQLTemplate.Example(
                         query="How many agencies were recommending to use the ICESat-2 satellite?",
-                        sql="SELECT COUNT(DISTINCT metadata.organization_name) FROM metadata JOIN solution ON metadata.id = solution.need_id WHERE solution.platform ILIKE '%icesat-2%' OR similarity(solution.platform, 'icesat-2') >= 0.4;",
+                        sql="SELECT COUNT(DISTINCT metadata.organization_name) FROM metadata JOIN solution ON metadata.id = solution.need_id WHERE solution.platform ILIKE '%ICESat-2%' OR similarity(solution.platform, 'ICESat-2') >= 0.4;",
                         result=2,
                     ),
                 ],
@@ -45,7 +45,7 @@ class TestFuzzySQLTemplateMatcher:
                 examples=[
                     SQLTemplate.Example(
                         query="Which organizations are interested in using the ICESat-2 or LandSat-8 satellites?",
-                        sql="SELECT DISTINCT metadata.organization_name FROM metadata JOIN solution ON metadata.id = solution.need_id WHERE solution.platform ILIKE '%icesat-2%' OR solution.platform ILIKE '%landsat-8%';",
+                        sql="SELECT DISTINCT metadata.organization_name FROM metadata JOIN solution ON metadata.id = solution.need_id WHERE solution.platform ILIKE '%ICESat-2%' OR solution.platform ILIKE '%LandSat-8%';",
                         result=[
                             "Department of the Interior",
                             "Environmental Protection Agency (EPA)",
