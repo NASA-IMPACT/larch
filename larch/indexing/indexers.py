@@ -194,8 +194,8 @@ class LangchainDocumentIndexer(DocumentIndexer):
         return len(self.doc_store)
 
     def index_documents(self, paths: List[str], **kwargs) -> LangchainDocumentIndexer:
-        store_dir = kwargs.get("store_dir")
-        index_name = kwargs.get("index_name")
+        store_dir = kwargs.pop("store_dir", None)
+        index_name = kwargs.pop("index_name", None)
 
         paths = self._get_new_paths(paths)
         doc_map = self._get_documents(paths, text_splitter=self.text_splitter, **kwargs)
