@@ -3,7 +3,7 @@ LLM toolbox
 
 The tool tentatively has the following components to create any downstream llm-based search engine.
 
-Installation can be don through:
+Installation can be done through:
 ```bash
 # direct remote installation
 pip install git+ssh://git@github.com/NASA-IMPACT/larch.git
