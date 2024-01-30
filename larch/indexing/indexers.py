@@ -237,17 +237,25 @@ class LangchainDocumentIndexer(DocumentIndexer):
         if self.vector_store is None:
             logger.warning("vector_store not initialized!")
             return []
-        filter_by = remove_nulls(kwargs.get("filter_by", {}))
+        kwargs = kwargs.copy()
+        filter_by = remove_nulls(kwargs.pop("filter_by", {}))
         if self.debug:
             logger.debug(f"top_k={top_k}")
             logger.debug(f"filter_by = {filter_by}")
 
-        lang_docs = self.vector_store.similarity_search(
+        chunks = self.vector_store.similarity_search_with_relevance_scores(
             query,
             k=top_k,
             filter=filter_by,
+            **kwargs,
         )
-        return list(map(Document.from_langchain_document, lang_docs))
+        results = []
+        # tuple of (doc, score)
+        for chunk in chunks:
+            doc = Document.from_langchain_document(chunk[0])
+            doc.extras["score"] = chunk[1]
+            results.append(doc)
+        return results
 
     def query(self, query: str, top_k=5, **kwargs) -> Response:
         query = query.strip()
