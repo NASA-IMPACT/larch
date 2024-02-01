@@ -3,7 +3,12 @@
 import re
 from abc import ABC, abstractmethod
 
-import spacy
+from loguru import logger
+
+try:
+    import spacy
+except ImportError:
+    logger.warning("spacy is not installed. Can't use `larch.processors.PIIRemover`")
 
 
 class TextProcessor(ABC):
