@@ -8,10 +8,21 @@ Installation can be done through:
 # direct remote installation
 pip install git+ssh://git@github.com/NASA-IMPACT/larch.git
 
+
+# install extras
+pip install "git+ssh://git@github.com/NASA-IMPACT/larch.git#egg=larch[extras]"
+
+# install url-loaders
+pip install "git+ssh://git@github.com/NASA-IMPACT/larch.git#egg=larch[url-loaders]"
+
 # or clone and install
 git clone -b develop git@github.com:NASA-IMPACT/larch.git
 cd larch
-pip install -e # or python setup.py install
+pip install -e .
+# pip install -e '.[extras]'
+# pip install -e '.[url-loaders]'
+
+
 ```
 
 
