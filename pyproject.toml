@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=42", "wheel", "setuptools_scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "larch"
+version = "0.0.2-alpha"
+description = "LLM toolbox"
+readme = "README.md"
+authors = [{email = "np0069@uah.edu"}]
+license = {file = "LICENSE"}
+keywords = ["machine learning", "neural network", "transformers", "large language models", "nlp", "natural language processing", "retrieval-augmented generation", "RAG"]
+classifiers = [
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX",
+    "Operating System :: Unix",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development",
+    "Topic :: Scientific/Engineering",
+]
+requires-python = ">=3.8"
+urls = { "Homepage" = "https://github.com/NASA-IMPACT/larch" }
+
+dependencies = [
+    "deepdiff==6.6.1",
+    "instructor==0.2.9",
+    "joblib==1.3.2",
+    "langchain==0.0.304",
+    "langchain-experimental==0.0.23",
+    "loguru==0.7.2",
+    "openai==0.28.1",
+    "pgvector==0.2.4",
+    "psycopg2-binary==2.9.9",
+    "pynequa==0.2.0",
+    "pytest==7.4.4",
+    "pytest-cov==4.1.0",
+    "rapidfuzz==3.4.0",
+    "tiktoken==0.5.2",
+    "tqdm==4.66.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["larch", "larch.metadata", "larch.search", "larch.indexing"]
+
+
+[tool.setuptools_scm]
+write_to = "larch/__version__.py"
+
+[project.optional-dependencies]
+url-loaders = [
+    "unstructured>=0.12.3",
+    "unstructured-client>=0.17.0",
+    "python-magic>=0.4.27",
+    "python-magic-bin>=0.4.14",
+]
+paperqa = ["paper-qa"]
+extras = [
+    "pandas>=2.1.4",
+    "spacy==3.7.2"
+]

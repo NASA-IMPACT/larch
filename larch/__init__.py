@@ -1,2 +1,5 @@
 # flake8: noqa
-__version__ = "0.0.2-alpha"
+try:
+    from .__version__ import version as __version__
+except ImportError:
+    __version__ = "unknown"
