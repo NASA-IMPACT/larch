@@ -200,7 +200,7 @@ class LangchainDocumentParser:
         return self._split_text(docs)
 
     def parse_url(self, path: str) -> List[LangchainDocument]:
-        docs = self.url_loader_cls(urls=[path]).load()
+        docs = self.url_loader_cls([path]).load()
         return self._split_text(docs)
 
     def parse_txt(self, path: str) -> List[LangchainDocument]:
