@@ -7,8 +7,16 @@ from setuptools import setup
 with open("README.md") as fh:
     long_description = fh.read()
 
-with open("requirements-dev.txt") as f:
-    required = f.read().splitlines()
+
+def read_requirements(path):
+    reqs = []
+    with open("requirements-dev.txt") as f:
+        reqs = f.read().splitlines()
+    return reqs
+
+
+requirements_required = read_requirements("requirements-dev.txt")
+requirements_extras = read_requirements("requirements-extras.txt")
 
 
 def find_version():
@@ -32,10 +40,8 @@ setup(
     author_email="np0069@uah.edu",
     python_requires=">=3.8",
     packages=["larch", "larch.metadata", "larch.search", "larch.indexing"],
-    install_requires=required,
-    extras_require={
-        "paperqa": ["paper-qa"],
-    },
+    install_requires=requirements_required,
+    extras_require={"paperqa": ["paper-qa"], "extras": requirements_extras},
     classifiers=[
         "Intended Audience :: Education",
         "Intended Audience :: Science/Research",

@@ -6,7 +6,14 @@ import re
 from collections.abc import MutableMapping
 from typing import Dict, Generator, List, Optional, TypeVar, Union
 
-import pandas as pd
+from loguru import logger
+
+try:
+    import pandas as pd
+except ImportError:
+    logger.warning("pandas not installed. Some utilities will not work!")
+
+
 from langchain.document_loaders import (
     PyPDFLoader,
     TextLoader,
