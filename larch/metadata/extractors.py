@@ -6,7 +6,6 @@ from typing import Callable, Dict, List, Optional, Type, Union
 from joblib import Parallel, delayed
 from langchain.chains import create_extraction_chain
 from langchain.chat_models import ChatOpenAI
-from langchain.chat_models.base import BaseLanguageModel
 from langchain.output_parsers import (
     OutputFixingParser,
     PydanticOutputParser,
@@ -14,6 +13,7 @@ from langchain.output_parsers import (
 )
 from langchain.prompts.chat import ChatPromptTemplate
 from langchain.schema import BasePromptTemplate, OutputParserException
+from langchain_core.language_models import BaseLanguageModel
 from loguru import logger
 from pydantic import BaseModel
 

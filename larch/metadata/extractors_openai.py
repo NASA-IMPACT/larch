@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 
 import json
+import os
 from typing import Callable, List, Optional, Type
 
 import instructor
-import openai
 from loguru import logger
+from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
 from ._base import AbstractMetadataExtractor
@@ -28,15 +29,24 @@ class SimpleOpenAIMetadataExtractor(AbstractMetadataExtractor):
     def __init__(
         self,
         schema: Type[BaseModel],
-        model: str = "gpt-3.5-turbo-0613",
+        model: str = "gpt-3.5-turbo",
+        openai_client: Optional[OpenAI] = None,
+        api_key: Optional[str] = None,
         system_prompt: str = _SYSTEM_PROMPT,
         preprocessor: Optional[Callable] = None,
+        mode: instructor.function_calls.Mode = instructor.function_calls.Mode.FUNCTIONS,
+        max_retries: int = 1,
         debug: bool = False,
     ) -> None:
         super().__init__(debug=debug, preprocessor=preprocessor)
         self.model = model
         self.schema = schema
         self._system_prompt = system_prompt
+        self.max_retries = max_retries
+        self.openai_client = openai_client or OpenAI(
+            api_key=api_key or os.environ.get("OPENAI_API_KEY"),
+        )
+        self.mode = mode or instructor.function_calls.mode.FUNCTIONS
 
     def _get_messages(self, text: str) -> List[dict]:
         messages = []
@@ -49,14 +59,18 @@ class SimpleOpenAIMetadataExtractor(AbstractMetadataExtractor):
         return messages
 
     def _extract(self, text: str):
-        instructor.patch()
-        metadata = openai.ChatCompletion.create(
+        text = text.strip()
+        client = instructor.patch(self.openai_client.copy(), mode=self.mode)
+        messages = self._get_messages(text)
+        if self.debug:
+            logger.debug(f"messages :: {messages}")
+        metadata = client.chat.completions.create(
             model=self.model,
             temperature=0,
             response_model=self.schema,
-            messages=self._get_messages(text),
+            max_retries=self.max_retries,
+            messages=messages,
         )
-        instructor.unpatch()
         return metadata
 
 
@@ -70,7 +84,8 @@ class InstructorBasedOpenAIMetadataExtractor(SimpleOpenAIMetadataExtractor):
         if self.debug:
             logger.debug(f"nchars={len(text)}\nText :: {text}")
         schema = instructor.openai_schema(self.schema)
-        response = openai.ChatCompletion.create(
+        print(schema.openai_schema)
+        response = self.openai_client.chat.completions.create(
             model=self.model,
             temperature=0,
             functions=[schema.openai_schema],
@@ -83,7 +98,7 @@ class InstructorBasedOpenAIMetadataExtractor(SimpleOpenAIMetadataExtractor):
         result = self.schema.model_construct()
 
         try:
-            result = schema.from_response(response)
+            result = schema.from_response(response, mode=self.mode)
         except ValidationError:
             logger.warning("Bypassing validation error!")
             message = response["choices"][0]["message"]
