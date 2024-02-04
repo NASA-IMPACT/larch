@@ -34,7 +34,6 @@ class SimpleOpenAIMetadataExtractor(AbstractMetadataExtractor):
         api_key: Optional[str] = None,
         system_prompt: str = _SYSTEM_PROMPT,
         preprocessor: Optional[Callable] = None,
-        mode: instructor.function_calls.Mode = instructor.function_calls.Mode.FUNCTIONS,
         max_retries: int = 1,
         debug: bool = False,
     ) -> None:
@@ -46,7 +45,6 @@ class SimpleOpenAIMetadataExtractor(AbstractMetadataExtractor):
         self.openai_client = openai_client or OpenAI(
             api_key=api_key or os.environ.get("OPENAI_API_KEY"),
         )
-        self.mode = mode or instructor.function_calls.mode.FUNCTIONS
 
     def _get_messages(self, text: str) -> List[dict]:
         messages = []
@@ -60,7 +58,10 @@ class SimpleOpenAIMetadataExtractor(AbstractMetadataExtractor):
 
     def _extract(self, text: str):
         text = text.strip()
-        client = instructor.patch(self.openai_client.copy(), mode=self.mode)
+        client = instructor.patch(
+            self.openai_client.copy(),
+            mode=instructor.function_calls.Mode.FUNCTIONS,
+        )
         messages = self._get_messages(text)
         if self.debug:
             logger.debug(f"messages :: {messages}")
@@ -98,7 +99,10 @@ class InstructorBasedOpenAIMetadataExtractor(SimpleOpenAIMetadataExtractor):
         result = self.schema.model_construct()
 
         try:
-            result = schema.from_response(response, mode=self.mode)
+            result = schema.from_response(
+                response,
+                mode=instructor.function_calls.Mode.FUNCTIONS,
+            )
         except ValidationError:
             logger.warning("Bypassing validation error!")
             message = response["choices"][0]["message"]
