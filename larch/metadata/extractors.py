@@ -5,7 +5,6 @@ from typing import Callable, Dict, List, Optional, Type, Union
 
 from joblib import Parallel, delayed
 from langchain.chains import create_extraction_chain
-from langchain.chat_models import ChatOpenAI
 from langchain.output_parsers import (
     OutputFixingParser,
     PydanticOutputParser,
@@ -14,6 +13,7 @@ from langchain.output_parsers import (
 from langchain.prompts.chat import ChatPromptTemplate
 from langchain.schema import BasePromptTemplate, OutputParserException
 from langchain_core.language_models import BaseLanguageModel
+from langchain_openai import ChatOpenAI
 from loguru import logger
 from pydantic import BaseModel
 
@@ -31,24 +31,42 @@ class LangchainBasedMetadataExtractor(AbstractMetadataExtractor):
         self,
         schema: Type[BaseModel],
         llm: Optional[Type[BaseLanguageModel]] = None,
-        prompt: Optional[BasePromptTemplate] = None,
+        prompt: Optional[Union[str, BasePromptTemplate]] = None,
         preprocessor: Optional[Callable] = None,
         debug: bool = False,
     ):
         super().__init__(debug=debug, preprocessor=preprocessor)
         self.llm = llm or ChatOpenAI(temperature=0, model="gpt-3.5-turbo")
         self.schema = schema
-        self.chain = self._create_chain(schema=schema, llm=llm, prompt=prompt)
+        self.chain = self._create_chain(
+            schema=schema,
+            llm=self.llm,
+            prompt=self._build_prompt(prompt),
+        )
 
     @property
     def prompt(self):
         return self.chain.prompt
 
+    def _build_prompt(
+        self,
+        prompt: Union[str, BasePromptTemplate],
+    ) -> Type[BasePromptTemplate]:
+        """
+        Builds a ChatPromptTemplate object to be used in extraction chain
+        """
+        if isinstance(prompt, BasePromptTemplate):
+            return prompt
+        elif isinstance(prompt, str):
+            prompt = prompt + "\nPassage:\n{input}"
+            return ChatPromptTemplate.from_template(prompt)
+        return prompt
+
     @staticmethod
     def _create_chain(
         schema: BaseModel,
         llm: Type[BaseLanguageModel],
-        prompt: Optional[BasePromptTemplate] = None,
+        prompt: Optional[BasePromptTemplate],
     ):
         if not isinstance(schema, dict):
             schema = schema.model_json_schema()
@@ -67,7 +85,7 @@ class LegacyMetadataExtractor(AbstractMetadataExtractor):
     and schema correction to parse the response from LLM.
     """
 
-    _PROMPT_STR = (
+    __EXTRACTION_PROMPT = (
         "You are a helpful assistant that extracts named entities from"
         + " the given input text."
         + " You must strictly conform to the provided schema for the extraction."
@@ -96,7 +114,7 @@ class LegacyMetadataExtractor(AbstractMetadataExtractor):
     def _build_prompt(self, prompt) -> ChatPromptTemplate:
         if isinstance(prompt, BasePromptTemplate):
             return prompt
-        prompt = prompt or LegacyMetadataExtractor._PROMPT_STR
+        prompt = prompt or LegacyMetadataExtractor.__EXTRACTION_PROMPT
         if isinstance(prompt, str) and "{format_instructions}" not in prompt:
             prompt = prompt + "\n{format_instructions}\n"
         if isinstance(prompt, str) and "{input}" not in prompt:
@@ -106,7 +124,7 @@ class LegacyMetadataExtractor(AbstractMetadataExtractor):
         return prompt
 
     def _extract_legacy(self, text: str) -> Type[BaseModel]:
-        model_response = self.llm(
+        model_response = self.llm.invoke(
             self.prompt.format_prompt(
                 format_instructions=self.parser.get_format_instructions(),
                 input=text,
