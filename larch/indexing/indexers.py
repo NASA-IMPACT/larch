@@ -11,7 +11,7 @@ from langchain.chains.base import Chain
 from langchain.chains.question_answering import load_qa_chain
 from langchain.schema.embeddings import Embeddings
 from langchain.text_splitter import TextSplitter
-from langchain.vectorstores import FAISS, PGVector, VectorStore
+from langchain.vectorstores import FAISS, Chroma, PGVector, VectorStore
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from loguru import logger
 from pydantic import BaseModel
@@ -171,6 +171,28 @@ class LangchainDocumentIndexer(DocumentIndexer):
             store[uuid] = Document.from_langchain_document(doc)
         return store
 
+    def _get_chroma_doc_store(self) -> Dict[str, Document]:
+        if self.vector_store is None:
+            return {}
+        store = {}
+        try:
+            _data = self.vector_store.get()
+        except StopIteration:
+            return {}
+        for (idx, doc, metadata) in zip(
+            _data["ids"],
+            _data["documents"],
+            _data["metadatas"],
+        ):
+            metadata = metadata.copy()
+            store[idx] = Document(
+                text=doc,
+                page=metadata.pop("page", None),
+                source=metadata.pop("source", None),
+                extras=metadata,
+            )
+        return store
+
     @property
     def doc_store(self) -> Dict[str, Document]:
         """
@@ -184,6 +206,8 @@ class LangchainDocumentIndexer(DocumentIndexer):
             store = self._get_faiss_doc_store()
         elif isinstance(self.vector_store, PGVector):
             store = self._get_pgvector_doc_store()
+        elif isinstance(self.vector_store, Chroma):
+            store = self._get_chroma_doc_store()
         return store
 
     @property

@@ -85,7 +85,6 @@ class InstructorBasedOpenAIMetadataExtractor(SimpleOpenAIMetadataExtractor):
         if self.debug:
             logger.debug(f"nchars={len(text)}\nText :: {text}")
         schema = instructor.openai_schema(self.schema)
-        print(schema.openai_schema)
         response = self.openai_client.chat.completions.create(
             model=self.model,
             temperature=0,
