@@ -43,8 +43,8 @@ dependencies = [
     "tqdm==4.66.1",
 ]
 
-[tool.setuptools.packages.find]
-where = ["larch", "larch.metadata", "larch.search", "larch.indexing"]
+[tool.setuptools]
+packages = ["larch", "larch.metadata", "larch.search", "larch.indexing"]
 
 
 [tool.setuptools_scm]

@@ -12,10 +12,11 @@ documents/
 notebooks/
 .DS_Store
 .devcontainer
+larch/__version__.py
 
 
 # dirs
-__pycache__/ 
+__pycache__/
 UND/__pycache__/config.cpython-39.pyc
 
 # Byte-compiled / optimized / DLL files
