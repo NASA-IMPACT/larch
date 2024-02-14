@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from typing import List, Type
+from typing import List
 
 from langchain.callbacks.manager import CallbackManagerForRetrieverRun
 from langchain.schema.retriever import BaseRetriever
@@ -10,7 +10,7 @@ from ..structures import Document, LangchainDocument
 
 
 class DocumentIndexerAsRetriever(BaseRetriever):
-    document_indexer: Type[DocumentIndexer]
+    document_indexer: DocumentIndexer
 
     def _get_relevant_documents(
         self,
