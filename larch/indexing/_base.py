@@ -122,6 +122,6 @@ class DocumentIndexer(ABC):
 
     def as_langchain_retriever(self) -> Type[BaseRetriever]:
         # to avoid circular import
-        from .search.chains import DocumentIndexerAsRetriever
+        from ..search.chains import DocumentIndexerAsRetriever
 
         return DocumentIndexerAsRetriever(document_indexer=self)
