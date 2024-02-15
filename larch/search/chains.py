@@ -11,16 +11,16 @@ from ..structures import Document, LangchainDocument
 
 class DocumentIndexerAsRetriever(BaseRetriever):
     document_indexer: DocumentIndexer
+    top_k: int = 5
 
     def _get_relevant_documents(
         self,
         query: str,
         *,
-        top_k: int = 5,
         run_manager: CallbackManagerForRetrieverRun,
         **kwargs,
     ) -> List[LangchainDocument]:
-        documents = self.document_indexer.query_top_k(query, top_k=top_k, **kwargs)
+        documents = self.document_indexer.query_top_k(query, top_k=self.top_k, **kwargs)
         return list(map(Document.as_langchain_document, documents))
 
 
