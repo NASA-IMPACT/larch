@@ -1,26 +1,26 @@
 #!/usr/bin/env python3
 
-from typing import List, Type
+from typing import List
 
-from langchain.callbacks.manager import CallbackManagerForRetrieverRun
-from langchain.schema.retriever import BaseRetriever
+from langchain_core.callbacks import CallbackManagerForRetrieverRun
+from langchain_core.retrievers import BaseRetriever
 
 from ..indexing import DocumentIndexer
 from ..structures import Document, LangchainDocument
 
 
 class DocumentIndexerAsRetriever(BaseRetriever):
-    document_indexer: Type[DocumentIndexer]
+    document_indexer: DocumentIndexer
+    top_k: int = 5
 
     def _get_relevant_documents(
         self,
         query: str,
         *,
-        top_k: int = 5,
         run_manager: CallbackManagerForRetrieverRun,
         **kwargs,
     ) -> List[LangchainDocument]:
-        documents = self.document_indexer.query_top_k(query, top_k=top_k, **kwargs)
+        documents = self.document_indexer.query_top_k(query, top_k=self.top_k, **kwargs)
         return list(map(Document.as_langchain_document, documents))
 
 

@@ -120,8 +120,9 @@ class DocumentIndexer(ABC):
     def query(self, query: str, **kwargs) -> Response:
         raise NotImplementedError()
 
-    def as_langchain_retriever(self) -> Type[BaseRetriever]:
+    def as_langchain_retriever(self, **kwargs) -> Type[BaseRetriever]:
         # to avoid circular import
-        from .search.chains import DocumentIndexerAsRetriever
+        from ..search.chains import DocumentIndexerAsRetriever
 
-        return DocumentIndexerAsRetriever(document_indexer=self)
+        top_k = kwargs.get("top_k", 5)
+        return DocumentIndexerAsRetriever(document_indexer=self, top_k=top_k)
