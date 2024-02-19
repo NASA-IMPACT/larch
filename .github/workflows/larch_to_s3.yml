@@ -1,5 +1,9 @@
 name: larch to S3
 
+permissions:
+  id-token: write
+  contents: read
+
 on:
   workflow_dispatch:
   push:
@@ -35,5 +39,5 @@ jobs:
       
       - name: Upload to S3
         run: |
-          aws s3 cp "./larch_${RELEASE_TAG}.zip" s3://impact-repo-dependancies/larch/
-          aws s3 cp "./larch_latest.zip" s3://impact-repo-dependancies/larch/
+          aws s3 cp "./larch_${RELEASE_TAG}.zip" s3://impact-repo-dependencies/larch/
+          aws s3 cp "./larch_latest.zip" s3://impact-repo-dependencies/larch/
