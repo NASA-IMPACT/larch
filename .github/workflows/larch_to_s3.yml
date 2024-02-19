@@ -21,20 +21,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Get release tag name
-        id: get_tag_name
-        run: echo "RELEASE_TAG=${{ github.event.release.tag_name }}" >> $GITHUB_ENV
+      - name: Get latest release tag
+        id: get_latest_tag
+        run: |
+          TOKEN="${{ secrets.GITHUB_TOKEN }}"
+          VERSION=$(curl -s -H "Authorization: Bearer $TOKEN" "https://api.github.com/repos/${{ github.repository }}/releases/latest" | jq -r .tag_name)
+          echo "RELEASE_TAG=${VERSION}" >> $GITHUB_ENV
 
       - name: Zip repository
         run: |
           zip -r "larch_${RELEASE_TAG}.zip" .
           zip -r "larch_latest.zip" .
 
-      - name: ConfigureAWS Credentials 
+      - name: Configure AWS Credentials 
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::067782713062:role/admin-oidc
-          role-session-name: ${{ github.repository_owner}}
+          role-session-name: ${{ github.repository_owner }}
           aws-region: us-east-1
       
       - name: Upload to S3
