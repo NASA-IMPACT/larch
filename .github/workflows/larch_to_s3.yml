@@ -6,9 +6,11 @@ permissions:
 
 on:
   workflow_dispatch:
-  # push:
-  #   branches:
-  #     - main
+  push:
+    branches:
+      - main
+  release:
+    types: [published]
 
 jobs:
   upload-larch-to-s3:
@@ -29,6 +31,7 @@ jobs:
       - name: Zip repository
         run: |
           zip -r "larch_${{ steps.get_version.outputs.version }}.zip" .
+          zip -r "larch_latest.zip" .
 
       - name: ConfigureAWS Credentials 
         uses: aws-actions/configure-aws-credentials@v4
@@ -40,3 +43,4 @@ jobs:
       - name: Upload to S3
         run: |
           aws s3 cp "./larch_${{ steps.get_version.outputs.version }}.zip" s3://impact-repo-dependancies/larch/
+          aws s3 cp "./larch_latest.zip" s3://impact-repo-dependancies/larch/
