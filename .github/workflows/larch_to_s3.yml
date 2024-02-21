@@ -6,11 +6,11 @@ permissions:
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-  release:
-    types: [published]
+  # push:
+  #   branches:
+  #     - main
+  # release:
+  #   types: [published]
 
 jobs:
   upload-larch-to-s3:
