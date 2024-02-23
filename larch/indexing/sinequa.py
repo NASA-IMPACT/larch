@@ -4,7 +4,7 @@ from typing import Callable, Dict, List, Optional
 
 from loguru import logger
 from pydantic import BaseModel
-from pynequa import QueryParams, Sinequa
+from pynequa import AdvancedParams, QueryParams, Sinequa
 
 from ..structures import Document
 from ..utils import remove_duplicate_documents
@@ -173,6 +173,9 @@ class SinequaDocumentIndexer(DocumentIndexer):
         params.page = kwargs.get("page", 1)
         params.page_size = top_k * 2
         iterative_call = kwargs.get("iterative_call", False)
+
+        if "advanced_params" in kwargs:
+            params.advanced_params = AdvancedParams(**kwargs.get("advanced_params"))
 
         # search for documents
         documents = self._query_vectorstore(params)
