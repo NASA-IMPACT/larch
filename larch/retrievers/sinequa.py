@@ -8,13 +8,14 @@ from pynequa import AdvancedParams, QueryParams, Sinequa
 
 from ..structures import Document
 from ..utils import remove_duplicate_documents
-from ._base import DocumentIndexer
+from ._base import DocumentRetriever
 
 
-class SinequaDocumentIndexer(DocumentIndexer):
+class SinequaDocumentRetriever(DocumentRetriever):
     """
-    This uses Sinequa as document store to extract metadata
-    from the documents stored in Sinequa.
+    This retriever uses Sinequa as document store to retriever top passages based on query.
+
+    This uses `search.query` endpoint.
     """
 
     # not recommended to change as it might break result parsing
@@ -34,13 +35,9 @@ class SinequaDocumentIndexer(DocumentIndexer):
         query_name: str = "query",
         collection: Optional[str] = None,
         columns: Optional[List[str]] = columns_to_surface,
-        docs: Optional[List[str]] = None,
-        text_processor: Optional[Callable] = None,
         debug: bool = False,
     ) -> None:
         super().__init__(
-            docs=docs,
-            text_processor=text_processor,
             debug=debug,
         )
 
@@ -95,7 +92,7 @@ class SinequaDocumentIndexer(DocumentIndexer):
     def query(self, *args, **kwargs):
         raise NotImplementedError
 
-    def _query_vectorstore(
+    def _query_search(
         self,
         params: QueryParams,
         **kwargs,
@@ -123,7 +120,7 @@ class SinequaDocumentIndexer(DocumentIndexer):
         params.debug = kwargs.get("debug") or self.debug
         return params
 
-    def query_vectorstore(
+    def query_top_k(
         self,
         query: str,
         top_k: int = 5,
@@ -144,7 +141,7 @@ class SinequaDocumentIndexer(DocumentIndexer):
         params = self._build_pynequa_params(query=query, top_k=top_k, **kwargs)
 
         # search for documents
-        documents = self._query_vectorstore(params)
+        documents = self._query_search(params)
 
         # if iterative_call is True
         len_documents = len(documents)
@@ -162,8 +159,15 @@ class SinequaDocumentIndexer(DocumentIndexer):
         return documents[:top_k]
 
 
-class SinequaSQLRetriever(SinequaDocumentIndexer):
-    def query_vectorstore(
+class SinequaSQLRetriever(SinequaDocumentRetriever):
+    """
+    This retriever uses Sinequa as document store to retriever top documents
+    (full text, not passages) based on query.
+    It uses Sinequa's SQL engine to get the relevant docs.
+
+    """
+
+    def query_top_k(
         self,
         query: str,
         top_k: int = 5,
