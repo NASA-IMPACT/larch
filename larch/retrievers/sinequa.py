@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import ast
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Union
 
 from loguru import logger
 from pydantic import BaseModel
@@ -8,13 +8,14 @@ from pynequa import AdvancedParams, QueryParams, Sinequa
 
 from ..structures import Document
 from ..utils import remove_duplicate_documents
-from ._base import DocumentIndexer
+from ._base import DocumentRetriever
 
 
-class SinequaDocumentIndexer(DocumentIndexer):
+class SinequaDocumentRetriever(DocumentRetriever):
     """
-    This uses Sinequa as document store to extract metadata
-    from the documents stored in Sinequa.
+    This retriever uses Sinequa as document store to retriever top passages based on query.
+
+    This uses `search.query` endpoint.
     """
 
     # not recommended to change as it might break result parsing
@@ -34,13 +35,9 @@ class SinequaDocumentIndexer(DocumentIndexer):
         query_name: str = "query",
         collection: Optional[str] = None,
         columns: Optional[List[str]] = columns_to_surface,
-        docs: Optional[List[str]] = None,
-        text_processor: Optional[Callable] = None,
         debug: bool = False,
     ) -> None:
         super().__init__(
-            docs=docs,
-            text_processor=text_processor,
             debug=debug,
         )
 
@@ -89,13 +86,7 @@ class SinequaDocumentIndexer(DocumentIndexer):
 
         return remove_duplicate_documents(documents)
 
-    def index_documents(self, paths: List[str]) -> Dict[str, BaseModel]:
-        raise NotImplementedError
-
-    def query(self, *args, **kwargs):
-        raise NotImplementedError
-
-    def _query_vectorstore(
+    def _query_search(
         self,
         params: QueryParams,
         **kwargs,
@@ -106,24 +97,43 @@ class SinequaDocumentIndexer(DocumentIndexer):
         results = self.sinequa.search_query(params)
         return self._parse_query_results(results)
 
-    def _build_pynequa_params(self, **kwargs) -> QueryParams:
+    def _build_advanced_params(
+        self,
+        **kwargs,
+    ) -> Union[AdvancedParams, List[AdvancedParams]]:
         collection = self.collection
+        advanced_params = kwargs.get("advanced") or kwargs.get("advanced_params") or []
 
+        # if no params supplied externally, build one for collection name if
+        # possible
+        if collection and not advanced_params:
+            advanced_params = AdvancedParams(
+                col_name="collection",
+                col_value=collection,
+            )
+        # if list is supplied, and each item is a dict
+        elif (
+            advanced_params
+            and isinstance(advanced_params, list)
+            and isinstance(advanced_params[0], dict)
+        ):
+            advanced_params = list(map(lambda p: AdvancedParams(**p), advanced_params))
+        # if single dict, just build it
+        elif advanced_params and isinstance(advanced_params, dict):
+            advanced_params = AdvancedParams(**advanced_params)
+        return advanced_params
+
+    def _build_pynequa_params(self, **kwargs) -> QueryParams:
         params = QueryParams()
         params.search_text = kwargs.get("query")
         params.page = kwargs.get("page", 1)
         params.page_size = kwargs.get("top_k", 5) * 2
         params.additional_where_clause = kwargs.get("additional_where_clause")
-
-        advanced_params = kwargs.get("advanced") or kwargs.get("advanced_params")
-        if collection and not advanced_params:
-            advanced_params = dict(col_name="collection", col_value=collection)
-        params.advanced = AdvancedParams(**advanced_params)
-
+        params.advanced = self._build_advanced_params(**kwargs)
         params.debug = kwargs.get("debug") or self.debug
         return params
 
-    def query_vectorstore(
+    def query_top_k(
         self,
         query: str,
         top_k: int = 5,
@@ -136,23 +146,25 @@ class SinequaDocumentIndexer(DocumentIndexer):
         Args:
             query (str): Query string
             top_k (int): Top k documents to surface
-            collection (str): Collection to search
+            kwargs: Consist of different params to call Sinequa's query API
         Returns:
             List[Document]: Top k documents
         """
         iterative_call = kwargs.get("iterative_call", False)
-        params = self._build_pynequa_params(query=query, top_k=top_k, **kwargs)
+        params: QueryParams = self._build_pynequa_params(
+            query=query,
+            top_k=top_k,
+            **kwargs,
+        )
 
-        # search for documents
-        documents = self._query_vectorstore(params)
+        documents: List[Document] = self._query_search(params)
 
-        # if iterative_call is True
         len_documents = len(documents)
         if len_documents < top_k and iterative_call:
             while len_documents < top_k:
                 params.page += 1
 
-                parsed_documents = self._query_vectorstore(params)
+                parsed_documents = self._query_search(params)
                 if len(parsed_documents) == 0:
                     break
 
@@ -162,8 +174,15 @@ class SinequaDocumentIndexer(DocumentIndexer):
         return documents[:top_k]
 
 
-class SinequaSQLRetriever(SinequaDocumentIndexer):
-    def query_vectorstore(
+class SinequaSQLRetriever(SinequaDocumentRetriever):
+    """
+    This retriever uses Sinequa as document store to retriever top documents
+    (full text, not passages) based on query.
+    It uses Sinequa's SQL engine to get the relevant docs.
+
+    """
+
+    def query_top_k(
         self,
         query: str,
         top_k: int = 5,

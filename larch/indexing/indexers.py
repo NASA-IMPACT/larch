@@ -9,14 +9,13 @@ from langchain.base_language import BaseLanguageModel
 from langchain.chains import RetrievalQA
 from langchain.chains.base import Chain
 from langchain.chains.question_answering import load_qa_chain
-from langchain.chat_models import ChatOpenAI
-from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.schema.embeddings import Embeddings
 from langchain.text_splitter import TextSplitter
-from langchain.vectorstores import FAISS, PGVector, VectorStore
+from langchain.vectorstores import FAISS, Chroma, PGVector, VectorStore
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from loguru import logger
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy import text as SQLAlchemyText
 from tqdm import tqdm
 
 from ..metadata import AbstractMetadataExtractor, InstructorBasedOpenAIMetadataExtractor
@@ -140,9 +139,11 @@ class LangchainDocumentIndexer(DocumentIndexer):
     def _get_pgvector_doc_store(self) -> Dict[str, Document]:
         table_name = self.vector_store.EmbeddingStore.__tablename__
         sql_query = f"SELECT uuid, document, cmetadata from {table_name};"
+        store = {}
 
         # filter by collection id
-        with Session(self.vector_store._conn) as session:
+        with self.vector_store._make_session() as session:
+            # with Session(self.vector_store._conn) as session:
             collection = self.vector_store.get_collection(session)
             if collection is not None:
                 sql_query = (
@@ -150,17 +151,16 @@ class LangchainDocumentIndexer(DocumentIndexer):
                     + f" where collection_id='{collection.uuid}';"
                 )
 
-        # create the dictionary store
-        store = {}
-        for row in self.vector_store._conn.exec_driver_sql(sql_query):
-            uuid = row[0]
-            document = row[1]
-            metadata = row[2]
-            store[uuid] = Document(
-                text=document,
-                page=metadata.get("page"),
-                source=metadata.get("source"),
-            )
+            # create the dictionary store
+            for row in session.execute(SQLAlchemyText(sql_query)):
+                uuid = row[0]
+                document = row[1]
+                metadata = row[2]
+                store[uuid] = Document(
+                    text=document,
+                    page=metadata.get("page"),
+                    source=metadata.get("source"),
+                )
         return store
 
     def _get_faiss_doc_store(self) -> Dict[str, Document]:
@@ -169,6 +169,28 @@ class LangchainDocumentIndexer(DocumentIndexer):
         store = {}
         for uuid, doc in self.vector_store.docstore._dict.items():
             store[uuid] = Document.from_langchain_document(doc)
+        return store
+
+    def _get_chroma_doc_store(self) -> Dict[str, Document]:
+        if self.vector_store is None:
+            return {}
+        store = {}
+        try:
+            _data = self.vector_store.get()
+        except StopIteration:
+            return {}
+        for idx, doc, metadata in zip(
+            _data["ids"],
+            _data["documents"],
+            _data["metadatas"],
+        ):
+            metadata = metadata.copy()
+            store[idx] = Document(
+                text=doc,
+                page=metadata.pop("page", None),
+                source=metadata.pop("source", None),
+                extras=metadata,
+            )
         return store
 
     @property
@@ -184,6 +206,8 @@ class LangchainDocumentIndexer(DocumentIndexer):
             store = self._get_faiss_doc_store()
         elif isinstance(self.vector_store, PGVector):
             store = self._get_pgvector_doc_store()
+        elif isinstance(self.vector_store, Chroma):
+            store = self._get_chroma_doc_store()
         return store
 
     @property
@@ -264,7 +288,7 @@ class LangchainDocumentIndexer(DocumentIndexer):
         inp = dict(query=query, question=query)
         if self.debug:
             logger.debug(f"Using k={top_k}")
-        result = self.qa_chain(k=top_k, **kwargs)(inp)
+        result = self.qa_chain(k=top_k, **kwargs).invoke(inp)
         if self.debug:
             logger.debug(result)
         return Response(

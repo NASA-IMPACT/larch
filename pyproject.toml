@@ -27,12 +27,13 @@ urls = { "Homepage" = "https://github.com/NASA-IMPACT/larch" }
 
 dependencies = [
     "deepdiff==6.6.1",
-    "instructor==0.2.9",
+    "instructor==0.4.8",
     "joblib==1.3.2",
-    "langchain==0.0.304",
-    "langchain-experimental==0.0.23",
+    "langchain==0.1.5",
+    "langchain-openai==0.0.5",
+    "langchain-experimental==0.0.50",
     "loguru==0.7.2",
-    "openai==0.28.1",
+    "openai==1.11.0",
     "pgvector==0.2.4",
     "psycopg2-binary==2.9.9",
     "pynequa==0.2.0",
@@ -44,7 +45,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["larch", "larch.metadata", "larch.search", "larch.indexing"]
+packages = ["larch", "larch.metadata", "larch.retrievers", "larch.search", "larch.indexing"]
 
 
 [tool.setuptools_scm]

@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 
-import os
-import sys
+from abc import ABC, abstractmethod
+from typing import Optional
 
 
-def main():
-    pass
+class AbstractClass(ABC):
+    def __init__(self, name: Optional[str] = None, debug: bool = False) -> None:
+        self.name = name
+        self.debug = bool(debug)
 
-
-if __name__ == "__main__":
-    main()
+    def __classname__(self) -> str:
+        return self.name or self.__class__.__name__

@@ -2,8 +2,8 @@
 
 from typing import List
 
-from langchain.callbacks.manager import CallbackManagerForRetrieverRun
-from langchain.schema.retriever import BaseRetriever
+from langchain_core.callbacks import CallbackManagerForRetrieverRun
+from langchain_core.retrievers import BaseRetriever
 
 from ..indexing import DocumentIndexer
 from ..structures import Document, LangchainDocument
