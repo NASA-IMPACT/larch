@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import ast
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Union
 
 from loguru import logger
 from pydantic import BaseModel
@@ -103,20 +103,39 @@ class SinequaDocumentRetriever(DocumentRetriever):
         results = self.sinequa.search_query(params)
         return self._parse_query_results(results)
 
-    def _build_pynequa_params(self, **kwargs) -> QueryParams:
+    def _build_advanced_params(
+        self,
+        **kwargs,
+    ) -> Union[AdvancedParams, List[AdvancedParams]]:
         collection = self.collection
+        advanced_params = kwargs.get("advanced") or kwargs.get("advanced_params") or []
 
+        # if no params supplied externally, build one for collection name if
+        # possible
+        if collection and not advanced_params:
+            advanced_params = AdvancedParams(
+                col_name="collection",
+                col_value=collection,
+            )
+        # if list is supplied, and each item is a dict
+        elif (
+            advanced_params
+            and isinstance(advanced_params, list)
+            and isinstance(advanced_params[0], dict)
+        ):
+            advanced_params = list(map(lambda p: AdvancedParams(**p), advanced_params))
+        # if single dict, just build it
+        elif advanced_params and isinstance(advanced_params, dict):
+            advanced_params = AdvancedParams(**advanced_params)
+        return advanced_params
+
+    def _build_pynequa_params(self, **kwargs) -> QueryParams:
         params = QueryParams()
         params.search_text = kwargs.get("query")
         params.page = kwargs.get("page", 1)
         params.page_size = kwargs.get("top_k", 5) * 2
         params.additional_where_clause = kwargs.get("additional_where_clause")
-
-        advanced_params = kwargs.get("advanced") or kwargs.get("advanced_params")
-        if collection and not advanced_params:
-            advanced_params = dict(col_name="collection", col_value=collection)
-        params.advanced = AdvancedParams(**advanced_params)
-
+        params.advanced = self._build_advanced_params(**kwargs)
         params.debug = kwargs.get("debug") or self.debug
         return params
 
