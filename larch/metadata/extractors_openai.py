@@ -104,7 +104,7 @@ class InstructorBasedOpenAIMetadataExtractor(SimpleOpenAIMetadataExtractor):
             )
         except ValidationError:
             logger.warning("Bypassing validation error!")
-            message = response["choices"][0]["message"]
+            message = response.choices[0].message
             result = (
                 self.schema.model_construct(
                     **json.loads(message["function_call"]["arguments"]),

@@ -15,12 +15,11 @@ from langchain.callbacks.manager import CallbackManagerForRetrieverRun
 from langchain.chains import create_sql_query_chain
 from langchain.chains.llm import LLMChain
 from langchain.chains.question_answering import load_qa_chain
-from langchain.chat_models import ChatOpenAI
-from langchain.llms import OpenAI
 from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from langchain.prompts.base import BasePromptTemplate
 from langchain.schema.retriever import BaseRetriever
 from langchain.utilities import SQLDatabase
+from langchain_openai import ChatOpenAI, OpenAI
 from loguru import logger
 
 from ..indexing import DocumentIndexer

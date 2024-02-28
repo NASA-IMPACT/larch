@@ -179,7 +179,7 @@ class LangchainDocumentIndexer(DocumentIndexer):
             _data = self.vector_store.get()
         except StopIteration:
             return {}
-        for (idx, doc, metadata) in zip(
+        for idx, doc, metadata in zip(
             _data["ids"],
             _data["documents"],
             _data["metadatas"],
