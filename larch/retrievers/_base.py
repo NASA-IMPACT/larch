@@ -16,15 +16,28 @@ class DocumentRetriever(AbstractClass):
 
     @abstractmethod
     def query_top_k(self, query: str, top_k: int = 5, **kwargs) -> List[Document]:
+        """
+        Args:
+            ```query```: ```str```
+                Query text for which top_k chunks/documents are to be fetched
+            ```top_k```: ```int```
+                Total number of chunks/documents to fetch
+        """
         raise NotImplementedError()
 
     def query(self, *args, **kwargs) -> List[Document]:
+        return self.query_top_k(*args, **kwargs)
+
+    def get_top_k(self, *args, **kwargs) -> List[Document]:
         return self.query_top_k(*args, **kwargs)
 
     def __call__(self, *args, **kwargs) -> List[Document]:
         return self.query_top_k(*args, **kwargs)
 
     def as_langchain_retriever(self, **kwargs) -> Type[BaseRetriever]:
+        """
+        Convert the larch retriever into Langchain-compatible retriever
+        """
         top_k = kwargs.pop("top_k", 5)
         return LangchainDocumentRetriever(retriever=self, top_k=top_k, params=kwargs)
 

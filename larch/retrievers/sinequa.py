@@ -86,12 +86,6 @@ class SinequaDocumentRetriever(DocumentRetriever):
 
         return remove_duplicate_documents(documents)
 
-    def index_documents(self, paths: List[str]) -> Dict[str, BaseModel]:
-        raise NotImplementedError
-
-    def query(self, *args, **kwargs):
-        raise NotImplementedError
-
     def _query_search(
         self,
         params: QueryParams,
@@ -152,23 +146,25 @@ class SinequaDocumentRetriever(DocumentRetriever):
         Args:
             query (str): Query string
             top_k (int): Top k documents to surface
-            collection (str): Collection to search
+            kwargs: Consist of different params to call Sinequa's query API
         Returns:
             List[Document]: Top k documents
         """
         iterative_call = kwargs.get("iterative_call", False)
-        params = self._build_pynequa_params(query=query, top_k=top_k, **kwargs)
+        params: QueryParams = self._build_pynequa_params(
+            query=query,
+            top_k=top_k,
+            **kwargs,
+        )
 
-        # search for documents
-        documents = self._query_search(params)
+        documents: List[Document] = self._query_search(params)
 
-        # if iterative_call is True
         len_documents = len(documents)
         if len_documents < top_k and iterative_call:
             while len_documents < top_k:
                 params.page += 1
 
-                parsed_documents = self._query_vectorstore(params)
+                parsed_documents = self._query_search(params)
                 if len(parsed_documents) == 0:
                     break
 
