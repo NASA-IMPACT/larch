@@ -6,7 +6,7 @@ from abc import abstractmethod
 from typing import Any, List, Optional
 
 from .._base import AbstractClass
-from ..schema import SQLTemplate
+from ..structures import SQLTemplate
 
 
 class SQLTemplateMatcher(AbstractClass):

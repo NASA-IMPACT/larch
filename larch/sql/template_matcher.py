@@ -7,7 +7,7 @@ from langchain.base_language import BaseLanguageModel
 from langchain.chat_models import ChatOpenAI
 from rapidfuzz import fuzz
 
-from ..schema import SQLTemplate
+from ..structures import SQLTemplate
 from ._base import SQLTemplateMatcher
 
 
@@ -44,6 +44,7 @@ class FuzzySQLTemplateMatcher(SQLTemplateMatcher):
         Returns:
             The preprocessed text.
         """
+        text = text.strip(".?")
         text = re.sub(r"\s+", " ", text)
         text = text.lower().strip()
         return text

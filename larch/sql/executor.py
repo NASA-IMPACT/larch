@@ -2,6 +2,7 @@
 import re
 from typing import Any, Dict, List
 
+from loguru import logger
 from sqlalchemy import create_engine
 from sqlalchemy.sql import text as SQLText
 
@@ -22,6 +23,8 @@ class SQLExecutor(AbstractClass):
         res = []
         if self.is_unsafe(statement):
             raise ValueError("Unsafe SQL statement. Aborting execution!")
+        if self.debug:
+            logger.debug(f"Executing SQL Statement :: {statement}")
         with self.engine.connect() as conn:
             res = conn.execute(SQLText(statement))
             columns = res.keys()
