@@ -8,38 +8,7 @@ from langchain.chat_models import ChatOpenAI
 from rapidfuzz import fuzz
 
 from ..schema import SQLTemplate
-
-
-class SQLTemplateMatcher(ABC):
-    """
-    SQLTemplateMatcher is a base class for all SQL based template matchers.
-    """
-
-    def __init__(
-        self,
-        templates: List[SQLTemplate],
-        similarity_threshold: float = 0.4,
-        debug: bool = False,
-    ) -> None:
-        self.templates = templates
-        self.similarity_threshold = similarity_threshold
-        self.debug = debug
-
-    @abstractmethod
-    def match(self, query: str, top_k=1, **kwargs) -> List[str]:
-        """
-        Match the given query against the templates.
-
-        Args:
-            query: The query to match against the templates.
-            top_k: The number of top-k templates to return. Defaults to 1.
-        Returns:
-            A list of top-k templates that match the query with entity substitution.
-        """
-        raise NotImplementedError()
-
-    def __call__(self, *args: Any, **kwds: Any) -> List[str]:
-        return self.match(*args, **kwds)
+from ._base import SQLTemplateMatcher
 
 
 class FuzzySQLTemplateMatcher(SQLTemplateMatcher):
