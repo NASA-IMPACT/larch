@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "larch"
-version = "0.1.0-alpha"
+version = "0.1.1-alpha"
 description = "LLM toolbox"
 readme = "README.md"
 authors = [{email = "np0069@uah.edu"}]
