@@ -7,7 +7,6 @@ from typing import List, Optional, Type
 
 import openai
 from langchain.agents import create_sql_agent
-from langchain.agents.agent_toolkits import SQLDatabaseToolkit
 from langchain.agents.agent_toolkits.sql.prompt import SQL_PREFIX
 from langchain.agents.agent_types import AgentType
 from langchain.base_language import BaseLanguageModel
@@ -18,7 +17,8 @@ from langchain.chains.question_answering import load_qa_chain
 from langchain.prompts import ChatPromptTemplate, PromptTemplate
 from langchain.prompts.base import BasePromptTemplate
 from langchain.schema.retriever import BaseRetriever
-from langchain.utilities import SQLDatabase
+from langchain_community.agent_toolkits import SQLDatabaseToolkit
+from langchain_community.utilities import SQLDatabase
 from langchain_openai import ChatOpenAI, OpenAI
 from loguru import logger
 

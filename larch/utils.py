@@ -14,16 +14,16 @@ except ImportError:
     logger.warning("pandas not installed. Some utilities will not work!")
 
 
-from langchain.document_loaders import (
+from langchain.output_parsers import PydanticOutputParser
+from langchain.pydantic_v1 import BaseModel, ValidationError
+from langchain.schema import OutputParserException
+from langchain.schema.document import Document as LangchainDocument
+from langchain_community.document_loaders import (
     PyPDFLoader,
     TextLoader,
     UnstructuredURLLoader,
     UnstructuredWordDocumentLoader,
 )
-from langchain.output_parsers import PydanticOutputParser
-from langchain.pydantic_v1 import BaseModel, ValidationError
-from langchain.schema import OutputParserException
-from langchain.schema.document import Document as LangchainDocument
 from tqdm import tqdm
 
 from .structures import Document
