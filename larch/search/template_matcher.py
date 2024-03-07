@@ -4,7 +4,7 @@ from copy import deepcopy
 from typing import Any, List, Optional
 
 from langchain.base_language import BaseLanguageModel
-from langchain.chat_models import ChatOpenAI
+from langchain_community.chat_models import ChatOpenAI
 from rapidfuzz import fuzz
 
 from ..schema import SQLTemplate
