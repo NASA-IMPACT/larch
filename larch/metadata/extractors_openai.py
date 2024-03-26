@@ -36,6 +36,7 @@ class SimpleOpenAIMetadataExtractor(AbstractMetadataExtractor):
         preprocessor: Optional[Callable] = None,
         max_retries: int = 1,
         debug: bool = False,
+        validation: Optional[bool] =True,
     ) -> None:
         super().__init__(debug=debug, preprocessor=preprocessor)
         self.model = model
@@ -45,6 +46,7 @@ class SimpleOpenAIMetadataExtractor(AbstractMetadataExtractor):
         self.openai_client = openai_client or OpenAI(
             api_key=api_key or os.environ.get("OPENAI_API_KEY"),
         )
+        self.validation=validation
 
     def _get_messages(self, text: str) -> List[dict]:
         messages = []
@@ -92,6 +94,8 @@ class InstructorBasedOpenAIMetadataExtractor(SimpleOpenAIMetadataExtractor):
             function_call={"name": schema.openai_schema["name"]},
             messages=self._get_messages(text),
         )
+        if self.validation==False:
+            return response
         if self.debug:
             logger.debug(response)
 
