@@ -6,7 +6,7 @@ from typing import Callable, List, Optional, Type
 
 import instructor
 from loguru import logger
-from openai import OpenAI
+from openai import ChatCompletion, OpenAI
 from pydantic import BaseModel, ValidationError
 
 from ._base import AbstractMetadataExtractor
@@ -81,16 +81,48 @@ class InstructorBasedOpenAIMetadataExtractor(SimpleOpenAIMetadataExtractor):
     Note: The schema for metadata should be of `Type[OpenAISchema]`.
     """
 
+    def _chat_completion(
+        self,
+        text: str,
+        model: Optional[OpenAI] = None,
+        temperature: int = 0,
+        schema: Optional[Type[BaseModel]] = None,
+    ) -> ChatCompletion:
+        """
+        A private method to access cereate ChatCompletion
+
+        Args:
+            ```text```: ```str```
+                Text from which metadata is to be extracted
+            ```model```: ```Optional[OpenAI]```
+                An OpenAI model object. If not provided, defaults to
+                what has been set in the constructor.
+            ```temperature```: ```int```
+                Generation parameter: temperature. Defaults to 0.
+                Lower the value, more deterministic generation.
+            ```schema```: ```Optional[Type[BaseModel]]```
+                A pydantic class (not the object) (derived from BaseModel)
+                that guides what information is to be extracted
+                from the text.
+        """
+        schema = instructor.openai_schema(schema or self.schema)
+        return self.openai_client.chat.completions.create(
+            model=model or self.model,
+            temperature=temperature,
+            functions=[schema.openai_schema],
+            function_call={"name": schema.openai_schema["name"]},
+            messages=self._get_messages(text),
+        )
+
     def _extract(self, text: str):
         if self.debug:
             logger.debug(f"nchars={len(text)}\nText :: {text}")
         schema = instructor.openai_schema(self.schema)
-        response = self.openai_client.chat.completions.create(
+        response = self._chat_completion(
+            text,
+            temperature=0.0,
+            schema=self.schema,
             model=self.model,
-            temperature=0,
-            functions=[schema.openai_schema],
-            function_call={"name": schema.openai_schema["name"]},
-            messages=self._get_messages(text),
         )
         if self.debug:
             logger.debug(response)
