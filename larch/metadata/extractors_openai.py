@@ -107,9 +107,9 @@ class InstructorBasedOpenAIMetadataExtractor(SimpleOpenAIMetadataExtractor):
             message = response.choices[0].message
             result = (
                 self.schema.model_construct(
-                    **json.loads(message["function_call"]["arguments"]),
+                    **json.loads(message.function_call.arguments),
                 )
-                if "function_call" in message
+                if hasattr(message, "function_call")
                 else result
             )
         return result
