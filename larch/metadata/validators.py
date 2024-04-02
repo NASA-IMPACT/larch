@@ -241,56 +241,72 @@ class WhitelistBasedMetadataValidator(MetadataValidator):
         return data
 
     @staticmethod
+    def _has_word(text: str, values: List[str]) -> bool:
+        # avoid matching shorter text
+        if len(text) < 3:
+            return False
+
+        text = text.lower()
+        for val in values:
+            if (text in val) or (val in text):
+                return True
+        return False
+
+    @staticmethod
+    def _exact_match(text: str, values: List[str]) -> bool:
+        """
+        If the value exactly matches, return a match
+        """
+        # avoid matching shorter text
+        if len(text) < 3:
+            return False
+
+        text = text.lower()
+        for val in values:
+            if val == text:
+                return True
+        return False
+
+    @staticmethod
     def standardize_value(
         whitelists: dict,
         field_name: str,
         extracted_value: str,
-        fuzzy_threshold: float = 0.75,
+        fuzzy_threshold: float = 0.95,
         scorer: Callable = fuzz.WRatio,
         processor: Callable = None,
         debug: bool = False,
     ) -> str:
-        field_dct = whitelists.get(field_name, {})
+        field_dct = whitelists.get(field_name, {}).copy()
         if not field_dct:
             return extracted_value
 
         cutoff = fuzzy_threshold * 100
-        extracted_value = (
+        extracted_value_processed = (
             processor(extracted_value) if processor is not None else extracted_value
         )
-        matched_value = None
 
-        # try to see if the text lies as substring in any value
-        def _has_word(text: str, values: List[str]) -> bool:
-            # avoid matching shorter text
-            if len(text) < 3:
-                return False
-
-            text = text.lower()
-            for val in values:
-                if (text in val) or (val in text):
-                    return True
-            return False
-
+        best_matches = []
         for key, values in field_dct.items():
             values = list(map(processor, values))
-            matches = fuzz_process.extract(
-                extracted_value,
+            fuzz_matches = fuzz_process.extract(
+                extracted_value_processed,
                 values,
                 scorer=scorer,
                 score_cutoff=cutoff,
             )
-            _word_lies = _has_word(extracted_value, values)
-            if debug:
-                logger.debug(
-                    f"field={field_name} | key={key} | matches = {matches} | values={values}"
-                    + f"| extracted_value={extracted_value}"
-                    + f"| _has_word={_word_lies}",
-                )
-            # fuzzy match or string-in-string match
-            if matches or _word_lies:
-                matched_value = key
-                break
-        if debug:
-            logger.debug(f"matched value = {matched_value}")
-        return matched_value if matched_value else extracted_value
+            _word_match = WhitelistBasedMetadataValidator._exact_match(
+                extracted_value_processed,
+                values,
+            )
+            if _word_match:
+                best_matches.append((key, extracted_value, 100.0))
+            elif fuzz_matches:
+                best_matches.extend([(key, fm[0], fm[1]) for fm in fuzz_matches])
+        if debug and best_matches:
+            logger.debug(
+                f"extracted value={extracted_value} | field={field_name} | best_matches={best_matches}",
+            )
+
+        best_matches = sorted(best_matches, key=lambda x: x[-1], reverse=True)
+        return best_matches[0][0] if best_matches else extracted_value
