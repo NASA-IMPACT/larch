@@ -191,6 +191,8 @@ class WhitelistBasedMetadataValidator(MetadataValidator):
         super().__init__(debug=debug, ignore_case=ignore_case)
         self.whitelists = whitelists
         self.matcher = matcher or ExactMatcher()
+        self.fuzzy_threshold = fuzzy_threshold
+        self.fuzzy_scorer = fuzzy_scorer
 
         # default: remove non-alpha-numeric values
         self.text_processor = text_processor or NonAlphaNumericRemover(
@@ -337,6 +339,12 @@ class WhitelistBasedMetadataValidatorWithMatcher(MetadataValidator):
             this will only try to match the list of keys (not their alternatives)
             ```text_processor```: ```Optional[Union[Callable, TextProcessor]]```
                 Text processing that is to be applied.
+                ```unmatched_value```:
+                    Default value for those that don't match to anything on the
+                    whitelist.
+                    - If 'original', then original extracted value is returned.
+                    - Else, whatever is set will be used.
+                    - If None, then those keys are removed by default
         ```debug```: ```bool```
             Debug mode flag
 
@@ -397,6 +405,7 @@ class WhitelistBasedMetadataValidatorWithMatcher(MetadataValidator):
         field_matcher: Optional[Matcher] = None,
         fallback_matcher: Optional[Matcher] = None,
         text_processor: Optional[Union[Callable, TextProcessor]] = None,
+        unmatched_value: Optional[str] = "original",
         ignore_case: bool = True,
         debug: bool = False,
     ) -> None:
@@ -404,6 +413,7 @@ class WhitelistBasedMetadataValidatorWithMatcher(MetadataValidator):
         self.whitelists = whitelists
         self.field_matcher = field_matcher or ExactMatcher()
         self.fallback_matcher = fallback_matcher
+        self.unmatched_value = unmatched_value or None
 
         # default: remove non-alpha-numeric values
         self.text_processor = text_processor or NonAlphaNumericRemover(
@@ -488,4 +498,9 @@ class WhitelistBasedMetadataValidatorWithMatcher(MetadataValidator):
             )
 
         best_matches = sorted(best_matches, key=lambda x: x[-1], reverse=True)
-        return best_matches[0][0] if best_matches else extracted_value
+        ret_val = (
+            extracted_value
+            if self.unmatched_value == "original"
+            else self.unmatched_value
+        )
+        return best_matches[0][0] if best_matches else ret_val

@@ -207,18 +207,13 @@ class FuzzyMatcher(Matcher):
                 values
                 - Second element of tuple is the matching score
         """
-        if self.ignore_case:
-            text = text.lower()
-            values = list(map(str.lower, values))
-
-        cutoff = self.threshold * 100
         matches = fuzz_process.extract(
-            text,
-            values,
+            text.lower() if self.ignore_case else text,
+            list(map(str.lower, values)) if self.ignore_case else values,
             scorer=self.scorer,
-            score_cutoff=cutoff,
+            score_cutoff=self.threshold * 100,
         )
-        return list(map(lambda x: (x[0], x[1]), matches))
+        return list(map(lambda x: (values[x[2]], x[1]), matches))
 
 
 class LLMMatcher(Matcher):
