@@ -238,14 +238,19 @@ class LLMMatcher(Matcher):
     """
 
     _PROMPT_WHITELIST = (
-        "Value that is selected. If no value matches, just return empty string."
+        "Best matching value. If no relevant matches, just return empty string."
+    )
+    _SCHEMA_DOC = (
+        "Select the best matching value that's only relevant to the provided text."
     )
 
     def __init__(
         self,
         extractor: AbstractMetadataExtractor,
         prompt_whitelist: Optional[str] = None,
+        prompt_schema_doc: Optional[str] = None,
         ignore_case: bool = False,
+        debug: bool = False,
     ) -> None:
         """
         Args:
@@ -255,14 +260,40 @@ class LLMMatcher(Matcher):
                 Prompt that is use to descripe the `whitelist` field
                 for the schema
         """
-        super().__init__(ignore_case=ignore_case)
+        super().__init__(ignore_case=ignore_case, debug=debug)
         self.extractor = extractor
         self.extractor.schema = None
         self.prompt_whitelist = prompt_whitelist or LLMMatcher._PROMPT_WHITELIST
+        self.prompt_schema_doc = prompt_schema_doc or LLMMatcher._SCHEMA_DOC
 
-    @property
-    def schema(self) -> Optional[BaseModel]:
-        return self.extractor.schema
+    @staticmethod
+    def _generate_schema(
+        text: str,
+        values: List[str],
+        prompt_whitelist: Optional[str] = None,
+        schema_doc: Optional[str] = None,
+    ) -> BaseModel:
+        schema = create_model(
+            "_WhitelistSelector",
+            matched_value=(
+                Literal[tuple(values)],
+                Field(
+                    ...,
+                    description=prompt_whitelist or LLMMatcher._PROMPT_WHITELIST,
+                ),
+            ),
+            score=(
+                float,
+                Field(
+                    ...,
+                    ge=0,
+                    le=100,
+                    description="Match score in range [0, 100]. If no match, return 0.0",
+                ),
+            ),
+        )
+        schema.__doc__ = schema_doc or LLMMatcher._SCHEMA_DOC
+        return schema
 
     def match(self, text: str, values: List[str]) -> List[Tuple[str, float]]:
         """
@@ -287,32 +318,24 @@ class LLMMatcher(Matcher):
         # copy and modify schema at runtime
         extractor = copy.copy(self.extractor)
 
-        extractor.schema = create_model(
-            "_WhitelistSelector",
-            whitelist=(
-                Literal[tuple(values)],
-                Field(
-                    ...,
-                    description=self.prompt_whitelist,
-                ),
-            ),
-            score=(
-                float,
-                Field(
-                    ...,
-                    ge=0,
-                    le=100,
-                    description="Match score in range [0, 100]. If no match, return 0.0",
-                ),
-            ),
+        extractor.schema = self._generate_schema(
+            text,
+            values,
+            self.prompt_whitelist,
+            self.prompt_schema_doc,
         )
         res = []
         try:
             match = extractor(text)
-            if match.whitelist and match.whitelist != text:
+            if self.debug:
+                logger.debug(f"{self.__classname__} match : {match}")
+            matched_value = match.matched_value
+            # railguard to prevnet unnencessary extraction.
+            # The matched value should lie in the list
+            if matched_value and matched_value in values:
                 # Rant: Don't trust LLM scores out-of-box
                 score = getattr(match, "score", 0.0)
-                res = [(match.whitelist, score)]
+                res = [(matched_value, score)]
         except (BadRequestError, AttributeError):
             res = []
 
