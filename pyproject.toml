@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "larch"
-version = "0.1.2-alpha"
+version = "0.2.0-alpha"
 description = "LLM toolbox"
 readme = "README.md"
 authors = [{email = "np0069@uah.edu"}]
 license = {file = "LICENSE"}
-keywords = ["machine learning", "neural network", "transformers", "large language models", "nlp", "natural language processing", "retrieval-augmented generation", "RAG"]
+keywords = ["machine learning", "neural network", "transformers", "large language models", "nlp", "natural language processing", "retrieval-augmented generation", "RAG", "metadata extraction", "metadata validation"]
 classifiers = [
     "Intended Audience :: Education",
     "Intended Audience :: Science/Research",
@@ -21,6 +21,10 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Software Development",
     "Topic :: Scientific/Engineering",
+    "Topic :: Natural Language Processing",
+    "Topic :: NLP",
+    "Topic :: Large Language Model",
+    "Topic :: LLM",
 ]
 requires-python = ">=3.8"
 urls = { "Homepage" = "https://github.com/NASA-IMPACT/larch" }
