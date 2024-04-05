@@ -149,6 +149,19 @@ class ExactMatcher(Matcher):
     """
     Use this if you want to match the texts exactly.
     (x==y)
+
+    Usage:
+
+        .. code-block: python
+
+            from larch.processors import ExactMatcher
+
+            matcher = ExactMatcher()
+            matches = matcher(
+                text="paradox"
+                values=["para", "Paradox"]
+            )
+            # Output: [("Paradox", 100.0)]
     """
 
     def match(self, text: str, values: List[str]) -> List[Tuple[str, float]]:
@@ -167,18 +180,31 @@ class ExactMatcher(Matcher):
                 - Second element of tuple is the matching score
         """
         text_org = text[:]
-        if self.ignore_case:
-            text = text.lower()
-            values = list(map(str.lower, values))
+        text = text.lower() if self.ignore_case else text
         for val in values:
+            val_org = val[:]
+            val = val.lower() if self.ignore_case else val
             if val == text:
-                return [(text_org, 100.0)]
+                return [(val_org, 100.0)]
         return []
 
 
 class FuzzyMatcher(Matcher):
     """
     This matches the text against the list of texts using fuzzy-matching.
+
+    Usage:
+
+        .. code-block: python
+
+            from larch.processors import FuzzyMatcher
+
+            matcher = FuzzyMatcher()
+            matches = matcher(
+                text="parado"
+                values=["para", "Paradox"]
+            )
+            # Output: [('Paradox', 92.3076923076923), ('para', 90.0)]
     """
 
     def __init__(
@@ -230,6 +256,30 @@ class LLMMatcher(Matcher):
 
     Note:
         - Chances of not returning exactly the string present in the list
+
+
+
+    Usage:
+
+        .. code-block: python
+
+            from larch.processors import LLMMatcher
+            from larch.metadata import InstructorBasedOpenAIMetadataExtractor
+            from openai import OpenAI
+
+            matcher = LLMMatcher(
+                InstructorBasedOpenAIMetadataExtractor(
+                    schema=None,
+                    openai_client=OpenAI(),
+                    model="gpt-3.5-turbo",
+                    debug=False
+                )
+            )
+            matches = matcher(
+                text="prdx"
+                values=["para", "Paradox"]
+            )
+            # Output: [('Paradox', 100.0)]
     """
 
     _PROMPT_WHITELIST = (
@@ -347,6 +397,55 @@ class CombinedMatcher(Matcher):
 
     This is used when we want to combine all the matching algorithm,
     like a fallback approach.
+
+    Usage:
+
+        .. code-block: python
+
+            from larch.processors import (
+                CombinedMatcher,
+                ExactMatcher,
+                FuzzyMatcher,
+                LLMMatcher
+            )
+            from larch.metadata import InstructorBasedOpenAIMetadataExtractor
+            from opena import OpenAI
+
+            matcher = CombinedMatcher(
+                ExactMatcher(),
+                FuzzyMatcher(),
+                LLMMatcher(
+                    InstructorBasedOpenAIMetadataExtractor(
+                        schema=None,
+                        openai_client=OpenAI(),
+                        model="gpt-3.5-turbo",
+                        debug=False
+                    )
+                )
+            )
+            matches = matcher(text="prdx", values=["para", "Paradox"]
+            # Output: [('Paradox', 100.0)] -> Matched from LLMMatcher
+
+            # We can also chain different LLMs from faster LLM to expensive
+            # Tries gpt-3.5-turbo first, if no matches, then gpt-4
+            matcher = CombinedMatcher(
+                LLMMatcher(
+                    InstructorBasedOpenAIMetadataExtractor(
+                        schema=None,
+                        openai_client=OpenAI(),
+                        model="gpt-3.5-turbo",
+                        debug=False
+                    )
+                ),
+                LLMMatcher(
+                    InstructorBasedOpenAIMetadataExtractor(
+                        schema=None,
+                        openai_client=OpenAI(),
+                        model="gpt-4",
+                        debug=False
+                    )
+                )
+            )
     """
 
     def __init__(self, *matchers: Matcher) -> None:

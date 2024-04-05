@@ -29,7 +29,7 @@ class SimpleInTextMetadataValidator(MetadataValidator):
 
     Usage
 
-        .. code-blocka: python
+        .. code-block: python
 
             from larch.metadata import InstructorBasedOpenAIMetadataExtractor
             from larch.metadata.validators import SimpleInTextMetadataValidator
@@ -339,12 +339,15 @@ class WhitelistBasedMetadataValidatorWithMatcher(MetadataValidator):
             this will only try to match the list of keys (not their alternatives)
             ```text_processor```: ```Optional[Union[Callable, TextProcessor]]```
                 Text processing that is to be applied.
-                ```unmatched_value```:
-                    Default value for those that don't match to anything on the
-                    whitelist.
-                    - If 'original', then original extracted value is returned.
-                    - Else, whatever is set will be used.
-                    - If None, then those keys are removed by default
+        ```keys_to_retain```: ```Optional[List[str]]```
+            A set of field/key names which shouldn't be removed
+            if they don't match anything on the whitelist.
+        ```unmatched_value```:
+            Default value for those that don't match to anything on the
+            whitelist.
+            - If 'original', then original extracted value is returned.
+            - Else, whatever is set will be used.
+            - If None, then those keys are removed by default
         ```debug```: ```bool```
             Debug mode flag
 
