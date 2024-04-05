@@ -405,6 +405,7 @@ class WhitelistBasedMetadataValidatorWithMatcher(MetadataValidator):
         field_matcher: Optional[Matcher] = None,
         fallback_matcher: Optional[Matcher] = None,
         text_processor: Optional[Union[Callable, TextProcessor]] = None,
+        keys_to_retain: Optional[List[str]] = None,
         unmatched_value: Optional[str] = "original",
         ignore_case: bool = True,
         debug: bool = False,
@@ -414,6 +415,7 @@ class WhitelistBasedMetadataValidatorWithMatcher(MetadataValidator):
         self.field_matcher = field_matcher or ExactMatcher()
         self.fallback_matcher = fallback_matcher
         self.unmatched_value = unmatched_value or None
+        self.keys_to_retain = keys_to_retain or set()
 
         # default: remove non-alpha-numeric values
         self.text_processor = text_processor or NonAlphaNumericRemover(
@@ -498,9 +500,11 @@ class WhitelistBasedMetadataValidatorWithMatcher(MetadataValidator):
             )
 
         best_matches = sorted(best_matches, key=lambda x: x[-1], reverse=True)
-        ret_val = (
-            extracted_value
-            if self.unmatched_value == "original"
-            else self.unmatched_value
-        )
+
+        # if we need to retain the field if unmatched
+        ret_val = None
+        if field_name in self.keys_to_retain or self.unmatched_value == "original":
+            ret_val = extracted_value
+        else:
+            ret_val = self.unmatched_value
         return best_matches[0][0] if best_matches else ret_val
