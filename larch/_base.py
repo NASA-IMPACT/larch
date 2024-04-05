@@ -9,5 +9,6 @@ class AbstractClass(ABC):
         self.name = name
         self.debug = bool(debug)
 
+    @property
     def __classname__(self) -> str:
         return self.name or self.__class__.__name__

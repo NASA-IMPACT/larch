@@ -135,7 +135,8 @@ class InstructorBasedOpenAIMetadataExtractor(SimpleOpenAIMetadataExtractor):
                 mode=instructor.function_calls.Mode.FUNCTIONS,
             )
         except ValidationError:
-            logger.warning("Bypassing validation error!")
+            if self.debug:
+                logger.warning("Bypassing validation error!")
             message = response.choices[0].message
             result = (
                 self.schema.model_construct(

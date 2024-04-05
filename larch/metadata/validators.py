@@ -8,7 +8,7 @@ from rapidfuzz import fuzz
 from rapidfuzz import process as fuzz_process
 from rapidfuzz import utils as fuzz_utils
 
-from ..processors import NonAlphaNumericRemover, TextProcessor
+from ..processors import ExactMatcher, Matcher, NonAlphaNumericRemover, TextProcessor
 from ._base import MetadataValidator
 
 
@@ -29,7 +29,7 @@ class SimpleInTextMetadataValidator(MetadataValidator):
 
     Usage
 
-        .. code-blocka: python
+        .. code-block: python
 
             from larch.metadata import InstructorBasedOpenAIMetadataExtractor
             from larch.metadata.validators import SimpleInTextMetadataValidator
@@ -181,6 +181,7 @@ class WhitelistBasedMetadataValidator(MetadataValidator):
     def __init__(
         self,
         whitelists: Dict[str, Dict[str, List[str]]],
+        matcher: Optional[Matcher] = None,
         fuzzy_threshold: float = 0.95,
         fuzzy_scorer: Callable = fuzz.WRatio,
         text_processor: Optional[Union[Callable, TextProcessor]] = None,
@@ -189,8 +190,9 @@ class WhitelistBasedMetadataValidator(MetadataValidator):
     ) -> None:
         super().__init__(debug=debug, ignore_case=ignore_case)
         self.whitelists = whitelists
+        self.matcher = matcher or ExactMatcher()
         self.fuzzy_threshold = fuzzy_threshold
-        self.fuzzy_scorer = fuzzy_scorer or fuzz.WRatio
+        self.fuzzy_scorer = fuzzy_scorer
 
         # default: remove non-alpha-numeric values
         self.text_processor = text_processor or NonAlphaNumericRemover(
@@ -262,13 +264,14 @@ class WhitelistBasedMetadataValidator(MetadataValidator):
             return False
 
         text = text.lower()
+        values = list(map(str.lower, values))
         for val in values:
             if val == text:
                 return True
         return False
 
-    @staticmethod
     def standardize_value(
+        self,
         whitelists: dict,
         field_name: str,
         extracted_value: str,
@@ -310,3 +313,201 @@ class WhitelistBasedMetadataValidator(MetadataValidator):
 
         best_matches = sorted(best_matches, key=lambda x: x[-1], reverse=True)
         return best_matches[0][0] if best_matches else extracted_value
+
+
+class WhitelistBasedMetadataValidatorWithMatcher(MetadataValidator):
+    """
+    This validator uses a whitelist to standardize values in a field
+    in the metadata.
+    Each field has a certain value and each value could take on different
+    alternate values during extraction process.
+    This validator recursively traverses the whitelist to figure out
+    (using fuzzy matching) which standard value to inject.
+
+    User is encouraged to use this than `WhitelistBasedMetadataValidator`.
+
+    Args:
+        ```whitelists```: ```Dict[str, Dict[str, List[str]]]```
+            A dictionary mapping for whitelist.
+        ```field_matcher```: ```Matcher```
+            A matcher object to apply the matching algorithm.
+            If not provided, only `larch.processors.ExactMatcher`
+            will be used.
+        ```fallback_matcher```: ```Optional[Matcher]```
+            The fallback approach if per-field matching fails.
+            Instead of going through each key and list of alternatives,
+            this will only try to match the list of keys (not their alternatives)
+            ```text_processor```: ```Optional[Union[Callable, TextProcessor]]```
+                Text processing that is to be applied.
+        ```keys_to_retain```: ```Optional[List[str]]```
+            A set of field/key names which shouldn't be removed
+            if they don't match anything on the whitelist.
+        ```unmatched_value```:
+            Default value for those that don't match to anything on the
+            whitelist.
+            - If 'original', then original extracted value is returned.
+            - Else, whatever is set will be used.
+            - If None, then those keys are removed by default
+        ```debug```: ```bool```
+            Debug mode flag
+
+    Note:
+        whitelists is of structure:
+
+            .. code-block: python
+
+                whitelists = {
+                    <field_1>: {
+                    <standard_value_1_str>: [<alternate_value_1>, <alternate_value_2>]
+                    <standard_value_2_str>: [<alternate_value_1>, <alternate_value_2>]
+                    },
+                    <field_2>: {
+                    ...
+                    }
+                }
+
+                whitelists = {'observable': {'aerosols': ['aerosols',
+                   'aerosol optical depth',
+                   'aerosol extinction',
+                   'AOD',
+                   'aerosol concentration',
+                   'pm2.5',
+                   'particulate matter',
+                   'Aerosol vertical distribution']
+                   }
+               }
+
+    Usage:
+
+        .. code-block: python
+
+            from larch.metadata.validators import WhitelistBasedMetadataValidatorWithMatcher
+            from larch.processors import NonAlphaNumericRemover
+            from larch.processors import CombinedMatcher, ExactMatcher, FuzzyMatcher
+
+            metadata = <pydantic_object>
+            # or
+            metadata = <dict>
+
+            validator = WhitelistBasedMetadataValidatorWithMatcher(
+                whitelists=whitelists,
+                field_matcher=CombinedMatcher(
+                    ExactMatcher(),
+                    FuzzyMatcher(threshold=0.95)
+                    )
+                text_processor=NonAlphaNumericRemover(),
+                debug=False,
+            )
+
+            metadata_validated = validator(metadata)
+    """
+
+    def __init__(
+        self,
+        whitelists: Dict[str, Dict[str, List[str]]],
+        field_matcher: Optional[Matcher] = None,
+        fallback_matcher: Optional[Matcher] = None,
+        text_processor: Optional[Union[Callable, TextProcessor]] = None,
+        keys_to_retain: Optional[List[str]] = None,
+        unmatched_value: Optional[str] = "original",
+        ignore_case: bool = True,
+        debug: bool = False,
+    ) -> None:
+        super().__init__(debug=debug, ignore_case=ignore_case)
+        self.whitelists = whitelists
+        self.field_matcher = field_matcher or ExactMatcher()
+        self.fallback_matcher = fallback_matcher
+        self.unmatched_value = unmatched_value or None
+        self.keys_to_retain = keys_to_retain or set()
+
+        # default: remove non-alpha-numeric values
+        self.text_processor = text_processor or NonAlphaNumericRemover(
+            ignore_case=ignore_case,
+        )
+
+    def _validate(self, metadata: dict, **kwargs) -> dict:
+        return self._recursive_validate(metadata, current_key=None)
+
+    def __call__(self, metadata: dict, **kwargs) -> dict:
+        return self._recursive_validate(metadata, current_key=None)
+
+    def _recursive_validate(
+        self,
+        data: Any,
+        current_key: str = None,
+    ) -> Any:
+        """
+        This recursively traverses the dictionary to do the standardization
+        """
+        # check for dict
+        if isinstance(data, dict):
+            validated_dict = {}
+            for key, value in data.items():
+                validated_value = self._recursive_validate(value, key)
+                if validated_value:
+                    validated_dict[key] = validated_value
+            return validated_dict
+
+        # if list, recursively apply same thing to each item
+        elif isinstance(data, list):
+            res = map(
+                lambda item: self._recursive_validate(item, current_key),
+                data,
+            )
+            res = filter(None, res)
+            return list(res)
+
+        # final leaf/node is a text value
+        elif isinstance(data, (str, int, float)) and current_key is not None:
+            return self.standardize_value(
+                self.whitelists,
+                current_key,
+                data,
+                processor=self.text_processor,
+                debug=self.debug,
+            )
+
+        return data
+
+    def standardize_value(
+        self,
+        whitelists: dict,
+        field_name: str,
+        extracted_value: str,
+        processor: Callable = None,
+        debug: bool = False,
+    ) -> str:
+        field_dct = whitelists.get(field_name, {}).copy()
+        if not field_dct:
+            return extracted_value
+
+        extracted_value_processed = (
+            processor(extracted_value) if processor is not None else extracted_value
+        )
+
+        best_matches = []
+        for key, values in field_dct.items():
+            values = list(map(processor, values))
+            matches = self.field_matcher(extracted_value_processed, values)
+            if matches:
+                best_matches.extend([(key, m[0], m[1]) for m in matches])
+
+        # use fallback only if there are no matches from `field_matcher`
+        if not best_matches and self.fallback_matcher:
+            f_match = self.fallback_matcher(extracted_value, list(field_dct.keys()))
+            best_matches.extend([(m[0], m[0], m[1]) for m in f_match])
+
+        if debug and best_matches:
+            logger.debug(
+                f"extracted value={extracted_value} | field={field_name} | best_matches={best_matches}",
+            )
+
+        best_matches = sorted(best_matches, key=lambda x: x[-1], reverse=True)
+
+        # if we need to retain the field if unmatched
+        ret_val = None
+        if field_name in self.keys_to_retain or self.unmatched_value == "original":
+            ret_val = extracted_value
+        else:
+            ret_val = self.unmatched_value
+        return best_matches[0][0] if best_matches else ret_val
