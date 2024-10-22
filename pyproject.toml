@@ -49,7 +49,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-packages = ["larch", "larch.metadata", "larch.retrievers", "larch.search", "larch.indexing"]
+packages = ["larch", "larch.metadata", "larch.retrievers", "larch.search", "larch.indexing", "larch.sql"]
 
 
 [tool.setuptools_scm]
