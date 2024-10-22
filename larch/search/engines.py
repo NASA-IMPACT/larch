@@ -25,7 +25,8 @@ from loguru import logger
 from ..indexing import DocumentIndexer
 from ..metadata import AbstractMetadataExtractor
 from ..prompts import QA_DOCUMENTS_PROMPT, SQL_AGENT_QUERY_AUGMENTATION_PROMPT
-from ..structures import Document, LangchainDocument, Response
+from ..sql import FuzzySQLTemplateMatcher, SQLExecutor, SQLTemplateMatcher
+from ..structures import Document, LangchainDocument, Response, SQLTemplate
 from ..utils import remove_nulls
 
 
@@ -381,6 +382,72 @@ class SQLAgentSearchEngine(AbstractSearchEngine):
                 )
 
         return Response(text=result, source=self.__classname__)
+
+
+class SQLTemplateSearchEngine(AbstractSearchEngine):
+    """
+    This engine uses custom SQL templates to match the input query
+    and execute.
+    This will execute if and only if there's a definite match
+    between the input query and the template
+
+    Args:
+        ```sql_executor```: ```SQLExecutor```
+            SQL executor object in larch that
+            abstracts away db connection for execution
+        ``template_matcher````: ```SQLTemplateMatcher```
+            The template matcher object that is of type SQLTemplateMatcher.
+            See `larch.sql.FuzzySQLTemplateMatcher` for a fuzzy-match.
+    """
+
+    _RESPONSE_NONE = "Answer can't be inferred!"
+
+    def __init__(
+        self,
+        sql_executor: SQLExecutor,
+        template_matcher: SQLTemplateMatcher,
+        debug: bool = False,
+    ) -> None:
+        super().__init__(debug=debug)
+        self.sql_executor = sql_executor
+        self.template_matcher = template_matcher
+
+    @classmethod
+    def from_uri_and_templates(
+        cls,
+        db_uri: str,
+        templates: List[SQLTemplate],
+        debug: bool = False,
+        **matcher_args,
+    ):
+        return cls(
+            sql_executor=SQLExecutor(db_uri, debug=debug),
+            template_matcher=FuzzySQLTemplateMatcher(
+                templates=templates,
+                debug=debug,
+                **matcher_args,
+            ),
+            debug=debug,
+        )
+
+    def query(self, query: str, top_k: int = 5) -> Response:
+        matches = self.template_matcher.match(query, top_k=top_k)
+        response = Response(
+            text=self._RESPONSE_NONE,
+            source=self.__classname__,
+            extras=dict(query=query),
+        )
+        if not matches:
+            return response
+        if self.debug:
+            logger.debug(matches)
+
+        match = matches[0]
+        # execute and respond if and only if there's exact match
+        if match.extras["matched"]:
+            response.text = self.sql_executor(match.sql_pattern)
+            response.evidences = matches
+        return response
 
 
 class MetadataBasedAugmentedSearchEngine(AbstractSearchEngine):
