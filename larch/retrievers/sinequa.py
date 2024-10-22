@@ -19,7 +19,7 @@ class SinequaDocumentRetriever(DocumentRetriever):
     """
 
     # not recommended to change as it might break result parsing
-    columns_to_surface = [
+    _columns_to_surface = [
         "text",
         "passagevectors",
         "collection",
@@ -33,8 +33,9 @@ class SinequaDocumentRetriever(DocumentRetriever):
         auth_token: str,
         app_name: str = "vanilla-search",
         query_name: str = "query",
+        index: Optional[str] = None,
         collection: Optional[str] = None,
-        columns: Optional[List[str]] = columns_to_surface,
+        columns: Optional[List[str]] = None,
         debug: bool = False,
     ) -> None:
         super().__init__(
@@ -49,7 +50,8 @@ class SinequaDocumentRetriever(DocumentRetriever):
                 "query_name": query_name,
             },
         )
-        self.columns = columns
+        self.columns = columns or self._columns_to_surface
+        self.index = index
         self.collection = collection
 
     def _parse_query_results(self, results) -> List[Document]:
@@ -182,6 +184,36 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
 
     """
 
+    _sql = """SELECT {columns} FROM {index}
+    WHERE collection='{collection}'
+    AND text contains '{query}'
+    LIMIT {limit}
+    """.strip()
+
+    def __init__(
+        self,
+        base_url: str,
+        auth_token: str,
+        app_name: str = "vanilla-search",
+        query_name: str = "query",
+        index: Optional[str] = None,
+        collection: Optional[str] = None,
+        columns: Optional[List[str]] = None,
+        sql: Optional[str] = None,
+        debug: bool = False,
+    ) -> None:
+        super().__init__(
+            base_url=base_url,
+            auth_token=auth_token,
+            app_name=app_name,
+            query_name=query_name,
+            index=index,
+            collection=collection,
+            columns=columns,
+            debug=debug,
+        )
+        self.sql = sql or self._sql
+
     def query_top_k(
         self,
         query: str,
@@ -211,7 +243,22 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
             sql=sql_query,
             max_rows=top_k,
         )
+        self._validate_result(results)
         return self._parse_sql_results(results["Rows"])
+
+    def _validate_result(self, result: dict) -> bool:
+        """
+        Validate if error or not.
+        """
+        methodresult = result.get("methodresult", "").lower()
+        if "error" in methodresult:
+            raise ValueError(f"Unable to get result | Error => {result}")
+        if "Rows" not in result:
+            raise ValueError(
+                f"Unable to get result | 'Rows' not present | Result => {result}",
+            )
+
+        return True
 
     def _generate_sql_query(
         self,
@@ -230,11 +277,15 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
             str : SQL query string
         """
         column_str = ",".join(self.columns)
-        return f"""SELECT {column_str} FROM index
-                        WHERE collection='{collection}'
-                        AND
-                        text contains '{query}'
-                        LIMIT {limit}"""
+        limit = limit if limit else -1
+        sql = self.sql.format(
+            columns=column_str,
+            index=self.index,
+            collection=collection,
+            query=query,
+            limit=limit,
+        )
+        return sql
 
     def _parse_sql_results(self, rows: List) -> List[Document]:
         """ "
