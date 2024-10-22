@@ -10,9 +10,9 @@ from langchain.agents import (
     LLMSingleActionAgent,
     Tool,
 )
-from langchain.chat_models import ChatOpenAI
 from langchain.prompts import BaseChatPromptTemplate
 from langchain.schema import AgentAction, AgentFinish, HumanMessage
+from langchain_community.chat_models import ChatOpenAI
 
 from ..structures import Response
 from .engines import AbstractSearchEngine

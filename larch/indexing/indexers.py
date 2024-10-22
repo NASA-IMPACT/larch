@@ -11,7 +11,7 @@ from langchain.chains.base import Chain
 from langchain.chains.question_answering import load_qa_chain
 from langchain.schema.embeddings import Embeddings
 from langchain.text_splitter import TextSplitter
-from langchain.vectorstores import FAISS, Chroma, PGVector, VectorStore
+from langchain_community.vectorstores import FAISS, Chroma, PGVector, VectorStore
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from loguru import logger
 from pydantic import BaseModel
