@@ -289,6 +289,7 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
         column_str = ",".join(self.columns)
         limit = limit if limit else -1
         ns = int(self.neural_search)
+        query = query.replace("'", "''")
         sql = self.sql.format(
             columns=column_str,
             index=self.index,
