@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+
 import ast
+import json
 from typing import Callable, Dict, List, Optional, Union
 
+import numpy as np
 from loguru import logger
 from pydantic import BaseModel
 from pynequa import AdvancedParams, QueryParams, Sinequa
@@ -19,12 +22,16 @@ class SinequaDocumentRetriever(DocumentRetriever):
     """
 
     # not recommended to change as it might break result parsing
+    # | For new columns, just append to the end of the list to prevent
+    # change of indexing issues during parsing. |
     _columns_to_surface = [
         "text",
         "passagevectors",
         "collection",
         "treepath",
         "filename",
+        "GlobalRelevance",
+        "id",
     ]
 
     def __init__(
@@ -187,6 +194,7 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
     _sql = """SELECT {columns} FROM {index}
     WHERE collection='{collection}'
     AND text contains '{query}'
+    AND SearchParameters='neural-search={neural_search}'
     LIMIT {limit}
     """.strip()
 
@@ -200,6 +208,7 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
         collection: Optional[str] = None,
         columns: Optional[List[str]] = None,
         sql: Optional[str] = None,
+        neural_search: bool = True,
         debug: bool = False,
     ) -> None:
         super().__init__(
@@ -213,6 +222,7 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
             debug=debug,
         )
         self.sql = sql or self._sql
+        self.neural_search = bool(neural_search)
 
     def query_top_k(
         self,
@@ -278,11 +288,13 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
         """
         column_str = ",".join(self.columns)
         limit = limit if limit else -1
+        ns = int(self.neural_search)
         sql = self.sql.format(
             columns=column_str,
             index=self.index,
             collection=collection,
             query=query,
+            neural_search=ns,
             limit=limit,
         )
         return sql
@@ -299,13 +311,57 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
         """
         documents = []
         for row in rows:
-            embeddings = ast.literal_eval(row[1])[0]["v"]
+            p_vectors = list(map(lambda x: x.get("v", None), ast.literal_eval(row[1])))
+            p_vectors = list(filter(None, p_vectors)) or None
+            p_vectors = list(np.mean(p_vectors, axis=0)) if p_vectors else None
 
             documents.append(
                 Document(
                     text=row[0],
-                    embeddings=embeddings,
-                    source=row[4],  # file_name
+                    embeddings=p_vectors,
+                    source=row[4],  # filename
+                    extras=dict(score=row[5], treepath=row[3], id=row[6]),
                 ),
             )
+        return documents
+
+
+class SinequaSQLPassageRetriever(SinequaSQLRetriever):
+    _columns_to_surface = [
+        "text",
+        "passagevectors",
+        "collection",
+        "treepath",
+        "filename",
+        "GlobalRelevance",
+        "id",
+        "passages('pretty=true,load-text=true')",
+    ]
+
+    def _parse_sql_results(self, rows: List) -> List[Document]:
+        """ "
+        This method parses the string response from Sinequa into
+        list of Document objects.
+
+        Args:
+            rows (List): list of results from SQL engine
+        Returns:
+            [Document] : list of Document objects
+        """
+        documents = []
+        for row in rows:
+            passages = json.loads(row[7])
+            p_vectors = ast.literal_eval(row[1])
+            for passage, pv in zip(passages, p_vectors):
+                documents.append(
+                    Document(
+                        text=passage.pop("text", row[0]),
+                        embeddings=pv.get("v", None),
+                        source=row[4],  # filename
+                        extras={
+                            **dict(score=row[5], treepath=row[3], id=row[6]),
+                            **passage,
+                        },
+                    ),
+                )
         return documents
