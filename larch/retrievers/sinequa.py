@@ -185,9 +185,8 @@ class SinequaDocumentRetriever(DocumentRetriever):
 
 class SinequaSQLRetriever(SinequaDocumentRetriever):
     """
-    This retriever uses Sinequa as document store to retriever top documents
-    (full text, not passages) based on query.
-    It uses Sinequa's SQL engine to get the relevant docs.
+    A Retriever type for implementing SQL-based retrival.
+    It uses Sinequa's SQL engine.
 
     """
 
@@ -197,6 +196,8 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
     AND SearchParameters='neural-search={neural_search}'
     LIMIT {limit}
     """.strip()
+
+    _data_access_key = "Rows"
 
     def __init__(
         self,
@@ -246,7 +247,12 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
         collection = (
             self.collection or kwargs.get("collection") or kwargs.get("collection_name")
         )
-        sql_query = self._generate_sql_query(query, collection, top_k)
+        sql_query = self._generate_sql_query(
+            query,
+            collection=collection,
+            index=self.index,
+            limit=top_k,
+        )
         if self.debug:
             logger.debug(f"SQL Query :: {sql_query}")
         results = self.sinequa.engine_sql(
@@ -254,7 +260,7 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
             max_rows=top_k,
         )
         self._validate_result(results)
-        return self._parse_sql_results(results["Rows"])
+        return self._parse_sql_results(results[self._data_access_key])
 
     def _validate_result(self, result: dict) -> bool:
         """
@@ -263,9 +269,9 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
         methodresult = result.get("methodresult", "").lower()
         if "error" in methodresult:
             raise ValueError(f"Unable to get result | Error => {result}")
-        if "Rows" not in result:
+        if self._data_access_key not in result:
             raise ValueError(
-                f"Unable to get result | 'Rows' not present | Result => {result}",
+                f"Unable to get result | '{self._data_access_key}' not present | Result => {result}",
             )
 
         return True
@@ -274,6 +280,7 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
         self,
         query: str,
         collection: str,
+        index: str,
         limit: int = 5,
     ) -> str:
         """
@@ -299,6 +306,25 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
             limit=limit,
         )
         return sql
+
+    def _parse_sql_results(self, rows: List) -> List[Document]:
+        raise NotImplementedError()
+
+
+class SinequaSQLDocumentRetriever(SinequaSQLRetriever):
+    """
+    This retriever uses Sinequa as document store to retriever top documents
+    (full text, not passages) based on query.
+    It uses Sinequa's SQL engine to get the relevant docs.
+
+    """
+
+    _sql = """SELECT {columns} FROM {index}
+    WHERE collection='{collection}'
+    AND text contains '{query}'
+    AND SearchParameters='neural-search={neural_search}'
+    LIMIT {limit}
+    """.strip()
 
     def _parse_sql_results(self, rows: List) -> List[Document]:
         """ "
@@ -328,6 +354,77 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
 
 
 class SinequaSQLPassageRetriever(SinequaSQLRetriever):
+    """
+    Retrieve passages/chunks.
+    For retrieving full document, use `SinequaSQLRetriever`
+    """
+
+    _data_access_key = "Attributes"
+
+    _sql = """
+select
+    TOPPASSAGES('columns=id/filename, matchlocations=(),count={count},minscore=0') as TP
+from
+   {index}
+where
+    text contains '{query}'
+    and SearchParameters='scmode=false;neural-search=1;pr.kw.n=100;pr.vect.n=100;mw=0'
+    limit {limit};
+    """
+
+    def _generate_sql_query(
+        self,
+        query: str,
+        collection: str,
+        index: str,
+        limit: int = 5,
+    ) -> str:
+        """
+        This method generates SQL query for Sinequa's SQL Engine
+
+        Args:
+            collection (str): Name of collection o query to
+            query (str): query text
+            limit (int): maximum number of results to return
+        Returns:
+            str : SQL query string
+        """
+        limit = limit if limit else -1
+        query = query.replace("'", "''")
+        sql = self.sql.format(
+            index=index,
+            collection=collection,
+            query=query,
+            limit=limit,
+            count=limit,
+        )
+        return sql
+
+    def _parse_sql_results(self, rows: dict) -> List[Document]:
+        """ "
+        This method parses the string response from Sinequa into
+        list of Document objects.
+
+        Args:
+            rows (List): list of results from SQL engine
+        Returns:
+            [Document] : list of Document objects
+        """
+        res = []
+        passages = json.loads(rows.get("tp", "[]")).get("passages", [])
+        for passage in passages:
+            columns = {k: v for c in passage.pop("columns", []) for k, v in c.items()}
+            res.append(
+                Document(
+                    text=passage.pop("text", None),
+                    source=columns.pop("id", None),
+                    extras={**passage, **columns},
+                ),
+            )
+        return res
+
+
+class SinequaSQLPassageRetriever2(SinequaSQLRetriever):
     _columns_to_surface = [
         "text",
         "passagevectors",
