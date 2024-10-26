@@ -61,6 +61,10 @@ class SinequaDocumentRetriever(DocumentRetriever):
         self.index = index
         self.collection = collection
 
+    @property
+    def column_to_idx(self) -> Dict[str, int]:
+        return {col: idx for idx, col in enumerate(self.columns)}
+
     def _parse_query_results(self, results) -> List[Document]:
         """
         This method parses query results from sinequa and returns
@@ -187,7 +191,6 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
     """
     A Retriever type for implementing SQL-based retrival.
     It uses Sinequa's SQL engine.
-
     """
 
     _sql = """SELECT {columns} FROM {index}
@@ -326,30 +329,43 @@ class SinequaSQLDocumentRetriever(SinequaSQLRetriever):
     LIMIT {limit}
     """.strip()
 
+    def _parse_passagevectors(self, row: dict) -> Optional[List[float]]:
+        """
+        Helper to parse passage vector
+        """
+        key = list(filter(lambda x: "passagevector" in x.lower(), self.columns))
+        if not key:
+            return None
+        vec = row.pop(key[0])
+        vec = list(map(lambda x: x.get("v", None), ast.literal_eval(vec)))
+        vec = list(filter(None, vec)) or None
+        return np.mean(vec, axis=0).tolist() if vec else None
+
     def _parse_sql_results(self, rows: List) -> List[Document]:
-        """ "
-        This method parses the string response from Sinequa into
-        list of Document objects.
+        """Parses SQL result rows into a list of Document objects, adapting to available columns.
 
         Args:
-            rows (List): list of results from SQL engine
+            rows (List): List of results from SQL engine.
+
         Returns:
-            [Document] : list of Document objects
+            List[Document]: List of Document objects.
         """
         documents = []
+        column_map = self.column_to_idx
         for row in rows:
-            p_vectors = list(map(lambda x: x.get("v", None), ast.literal_eval(row[1])))
-            p_vectors = list(filter(None, p_vectors)) or None
-            p_vectors = list(np.mean(p_vectors, axis=0)) if p_vectors else None
-
+            dct = dict(zip(self.columns, row))
             documents.append(
                 Document(
-                    text=row[0],
-                    embeddings=p_vectors,
-                    source=row[4],  # filename
-                    extras=dict(score=row[5], treepath=row[3], id=row[6]),
+                    text=dct.pop("text"),
+                    embeddings=self._parse_passagevectors(dct),
+                    source=dct.pop("filename"),
+                    extras={
+                        **{"score": dct.pop("GlobalRelevance")},
+                        **dct,
+                    },
                 ),
             )
+
         return documents
 
 
