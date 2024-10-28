@@ -45,7 +45,7 @@ dependencies = [
     "pytest-cov==4.1.0",
     "rapidfuzz==3.4.0",
     "tiktoken==0.5.2",
-    "tqdm==4.66.1",
+    "tqdm==4.66.3",
 ]
 
 [tool.setuptools]
