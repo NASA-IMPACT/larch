@@ -37,6 +37,10 @@ class Document(BaseModel):
     def __str__(self) -> str:
         return str(self.text)
 
+    @property
+    def embedding(self) -> Optional[List[float]]:
+        return self.embeddings
+
 
 class Response(Document):
     evidences: SerializeAsAny[Optional[List[Document]]] = None
