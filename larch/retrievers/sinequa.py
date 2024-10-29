@@ -383,7 +383,8 @@ select
 from
    {index}
 where
-    text contains '{query}'
+    collection='{collection}'
+    and text contains '{query}'
     and SearchParameters='scmode=false;neural-search=1;pr.kw.n=100;pr.vect.n=100;mw=0'
     limit {limit};
     """
