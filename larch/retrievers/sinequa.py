@@ -196,7 +196,7 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
     _sql = """SELECT {columns} FROM {index}
     WHERE collection='{collection}'
     AND text contains '{query}'
-    AND SearchParameters='neural-search={neural_search}'
+    AND SearchParameters='{search_params}'
     LIMIT {limit}
     """.strip()
 
@@ -211,6 +211,7 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
         index: Optional[str] = None,
         collection: Optional[str] = None,
         columns: Optional[List[str]] = None,
+        search_parameters: Optional[Dict] = None,
         sql: Optional[str] = None,
         neural_search: bool = True,
         debug: bool = False,
@@ -227,6 +228,7 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
         )
         self.sql = sql or self._sql
         self.neural_search = bool(neural_search)
+        self.search_parameters = search_parameters or {}
 
     def query_top_k(
         self,
@@ -279,6 +281,15 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
 
         return True
 
+    @property
+    def _search_params_str(self) -> str:
+        if not self.search_parameters:
+            return ""
+        res = ""
+        for k, v in self.search_parameters.items():
+            res += f"{k}={v};"
+        return res
+
     def _generate_sql_query(
         self,
         query: str,
@@ -298,14 +309,13 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
         """
         column_str = ",".join(self.columns)
         limit = limit if limit else -1
-        ns = int(self.neural_search)
         query = query.replace("'", "''")
         sql = self.sql.format(
             columns=column_str,
             index=self.index,
             collection=collection,
             query=query,
-            neural_search=ns,
+            search_params=self._search_params_str,
             limit=limit,
         )
         return sql
@@ -321,13 +331,6 @@ class SinequaSQLDocumentRetriever(SinequaSQLRetriever):
     It uses Sinequa's SQL engine to get the relevant docs.
 
     """
-
-    _sql = """SELECT {columns} FROM {index}
-    WHERE collection='{collection}'
-    AND text contains '{query}'
-    AND SearchParameters='neural-search={neural_search}'
-    LIMIT {limit}
-    """.strip()
 
     def _parse_passagevectors(self, row: dict) -> Optional[List[float]]:
         """
@@ -379,43 +382,15 @@ class SinequaSQLPassageRetriever(SinequaSQLRetriever):
 
     _sql = """
 select
-    TOPPASSAGES('columns=id/filename, matchlocations=(),count={count},minscore=0') as TP
+    TOPPASSAGES('columns=id/filename, matchlocations=(),count={limit},minscore=0') as TP
 from
    {index}
 where
     collection='{collection}'
     and text contains '{query}'
-    and SearchParameters='scmode=false;neural-search=1;pr.kw.n=100;pr.vect.n=100;mw=0'
+    and SearchParameters='{search_params}'
     limit {limit};
     """
-
-    def _generate_sql_query(
-        self,
-        query: str,
-        collection: str,
-        index: str,
-        limit: int = 5,
-    ) -> str:
-        """
-        This method generates SQL query for Sinequa's SQL Engine
-
-        Args:
-            collection (str): Name of collection o query to
-            query (str): query text
-            limit (int): maximum number of results to return
-        Returns:
-            str : SQL query string
-        """
-        limit = limit if limit else -1
-        query = query.replace("'", "''")
-        sql = self.sql.format(
-            index=index,
-            collection=collection,
-            query=query,
-            limit=limit,
-            count=limit,
-        )
-        return sql
 
     def _parse_sql_results(self, rows: dict) -> List[Document]:
         """ "
