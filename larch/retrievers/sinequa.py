@@ -217,7 +217,6 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
         text_column_name="text",
         debug: bool = False,
     ) -> None:
-        # adding text_column_name to columns list if it doesn't exist already
         super().__init__(
             base_url=base_url,
             auth_token=auth_token,
@@ -232,6 +231,7 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
         self.neural_search = bool(neural_search)
         self.search_parameters = search_parameters or {}
         self.text_column_name = text_column_name
+        # adding text_column_name to columns list if it doesn't exist already
         self.columns = self.columns + [self.text_column_name] if text_column_name not in self.columns else self.columns
 
     def query_top_k(
