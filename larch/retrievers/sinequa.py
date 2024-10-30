@@ -214,6 +214,7 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
         search_parameters: Optional[Dict] = None,
         sql: Optional[str] = None,
         neural_search: bool = True,
+        text_column_name:str = "text",
         debug: bool = False,
     ) -> None:
         super().__init__(
@@ -229,6 +230,9 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
         self.sql = sql or self._sql
         self.neural_search = bool(neural_search)
         self.search_parameters = search_parameters or {}
+        self.text_column_name = text_column_name
+        # adding text_column_name to columns list if it doesn't exist already
+        self.columns = self.columns + [self.text_column_name] if text_column_name not in self.columns else self.columns
 
     def query_top_k(
         self,
@@ -359,7 +363,7 @@ class SinequaSQLDocumentRetriever(SinequaSQLRetriever):
             dct = dict(zip(self.columns, row))
             documents.append(
                 Document(
-                    text=dct.pop("text"),
+                    text=dct.pop(self.text_column_name),
                     embeddings=self._parse_passagevectors(dct),
                     source=dct.pop("filename"),
                     extras={
@@ -408,7 +412,7 @@ where
             columns = {k: v for c in passage.pop("columns", []) for k, v in c.items()}
             res.append(
                 Document(
-                    text=passage.pop("text", None),
+                    text=passage.pop(self.text_column_name, None),
                     source=columns.pop("id", None),
                     extras={**passage, **columns},
                 ),
