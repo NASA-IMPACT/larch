@@ -214,7 +214,7 @@ class SinequaSQLRetriever(SinequaDocumentRetriever):
         search_parameters: Optional[Dict] = None,
         sql: Optional[str] = None,
         neural_search: bool = True,
-        text_column_name="text",
+        text_column_name:str = "text",
         debug: bool = False,
     ) -> None:
         super().__init__(
